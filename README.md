@@ -7,6 +7,7 @@ A cross-platform Flutter plugin to create stickers by removing backgrounds from 
 - iOS: Uses Vision and CoreImage for background removal.
 - Android: Uses Google ML Kit Selfie Segmentation.
 - Handles storage, gallery, and camera permissions automatically.
+- Configurable border support with customizable color and width.
 - Simple Dart API.
 
 ## Usage
@@ -14,9 +15,24 @@ A cross-platform Flutter plugin to create stickers by removing backgrounds from 
 ```dart
 import 'package:flutter_sticker_maker/flutter_sticker_maker.dart';
 
-// Pick an image, then:
+// Basic usage
 final sticker = await FlutterStickerMaker.makeSticker(imageBytes);
+
+// With border customization
+final stickerWithBorder = await FlutterStickerMaker.makeSticker(
+  imageBytes,
+  addBorder: true,
+  borderColor: '#FF0000', // Red border
+  borderWidth: 15.0,      // 15 pixel border width
+);
 ```
+
+### Parameters
+
+- `imageBytes`: The input image as Uint8List (PNG/JPEG)
+- `addBorder`: Whether to add a border around the sticker (default: true)
+- `borderColor`: Hex color string for the border (default: '#FFFFFF')
+- `borderWidth`: Width of the border in pixels (default: 12.0)
 
 See `example/` for a full demo app.
 

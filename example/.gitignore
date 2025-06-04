@@ -1,0 +1,58 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+
+# iOS specific build artifacts
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/DerivedData/
+# It's common to commit Runner.xcworkspace. If so, ignore user-specific data:
+**/ios/**/xcuserdata/
+# If Runner.xcworkspace itself is not committed (less common for team consistency):
+# **/ios/Runner.xcworkspace
+**/ios/Flutter/.last_build_id
+# Optional: If you don't want to track these Flutter-generated frameworks within the example
+# **/ios/Flutter/App.framework
+# **/ios/Flutter/Flutter.framework
+
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/build/
+/android/.gradle/
+# Add this if you have a local.properties file in your example/android directory
+# /android/local.properties
