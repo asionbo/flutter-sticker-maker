@@ -1,9 +1,8 @@
-import 'dart:io'; // Added for Platform
 import 'dart:typed_data';
+import 'package:example/services/permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_sticker_maker/flutter_sticker_maker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart'; // Added
 
 void main() {
   runApp(const MyApp());
@@ -11,10 +10,15 @@ void main() {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Sticker Maker Example',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
       home: const StickerPage(),
     );
   }
@@ -22,6 +26,7 @@ class MyApp extends StatelessWidget {
 
 class StickerPage extends StatefulWidget {
   const StickerPage({super.key});
+
   @override
   State<StickerPage> createState() => _StickerPageState();
 }
@@ -29,314 +34,349 @@ class StickerPage extends StatefulWidget {
 class _StickerPageState extends State<StickerPage> {
   Uint8List? _inputImage;
   Uint8List? _stickerImage;
-  bool _addBorder = true;
-  String _borderColor = '#FFFFFF';
-  double _borderWidth = 12.0;
-
-  Future<bool> _requestPermissions({bool forCamera = false}) async {
-    Map<Permission, PermissionStatus> statuses;
-    List<Permission> permsToRequest = [Permission.photos];
-    if (forCamera) {
-      permsToRequest.add(Permission.camera);
-    }
-
-    statuses = await permsToRequest.request();
-
-    bool allGranted = true;
-    statuses.forEach((permission, status) {
-      if (!(status.isGranted || (Platform.isIOS && status.isLimited))) {
-        allGranted = false;
-      }
-    });
-    return allGranted;
-  }
-
-  Future<void> _handlePermanentlyDenied({bool forCamera = false}) async {
-    bool photosPermanentlyDenied = await Permission.photos.isPermanentlyDenied;
-    bool cameraPermanentlyDenied =
-        forCamera ? await Permission.camera.isPermanentlyDenied : false;
-
-    if (photosPermanentlyDenied || (forCamera && cameraPermanentlyDenied)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Permissions are permanently denied. Please enable them in app settings.',
-            ),
-            action: SnackBarAction(
-              label: 'Settings',
-              onPressed: () async {
-                await openAppSettings();
-              },
-            ),
-          ),
-        );
-      }
-    }
-  }
+  bool _addBorder = StickerDefaults.defaultAddBorder;
+  String _borderColor = StickerDefaults.defaultBorderColor;
+  double _borderWidth = StickerDefaults.defaultBorderWidth;
+  bool _isProcessing = false;
 
   Future<void> _pickImageFromGallery() async {
-    final granted = await _requestPermissions(forCamera: false);
-    if (!granted) {
-      await _handlePermanentlyDenied(forCamera: false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Photo library permission needed to pick images.'),
-          ),
-        );
+    try {
+      final granted = await PermissionService.requestImagePermissions();
+      if (!granted) {
+        await _handlePermissionDenied();
+        return;
       }
-      return;
-    }
 
-    final picker = ImagePicker();
-    final XFile? imageFile = await picker.pickImage(
-      source: ImageSource.gallery,
-    );
-    if (imageFile != null) {
-      final bytes = await imageFile.readAsBytes();
-      setState(() {
-        _inputImage = bytes;
-        _stickerImage = null;
-      });
+      final picker = ImagePicker();
+      final XFile? imageFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 85,
+      );
+
+      if (imageFile != null) {
+        final bytes = await imageFile.readAsBytes();
+        setState(() {
+          _inputImage = bytes;
+          _stickerImage = null;
+        });
+      }
+    } catch (e) {
+      _showErrorSnackBar('Failed to pick image: $e');
     }
   }
 
   Future<void> _captureImageWithCamera() async {
-    final granted = await _requestPermissions(forCamera: true);
-    if (!granted) {
-      await _handlePermanentlyDenied(forCamera: true);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Camera and Photo library permissions needed.'),
-          ),
-        );
+    try {
+      final granted = await PermissionService.requestImagePermissions(
+        includeCamera: true,
+      );
+      if (!granted) {
+        await _handlePermissionDenied(includeCamera: true);
+        return;
       }
-      return;
-    }
 
-    final picker = ImagePicker();
-    final XFile? imageFile = await picker.pickImage(source: ImageSource.camera);
-    if (imageFile != null) {
-      final bytes = await imageFile.readAsBytes();
-      setState(() {
-        _inputImage = bytes;
-        _stickerImage = null;
-      });
+      final picker = ImagePicker();
+      final XFile? imageFile = await picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 85,
+      );
+
+      if (imageFile != null) {
+        final bytes = await imageFile.readAsBytes();
+        setState(() {
+          _inputImage = bytes;
+          _stickerImage = null;
+        });
+      }
+    } catch (e) {
+      _showErrorSnackBar('Failed to capture image: $e');
+    }
+  }
+
+  Future<void> _handlePermissionDenied({bool includeCamera = false}) async {
+    final permanentlyDenied =
+        await PermissionService.arePermissionsPermanentlyDenied(
+          includeCamera: includeCamera,
+        );
+
+    if (permanentlyDenied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Permissions are permanently denied. Please enable them in app settings.',
+          ),
+          action: SnackBarAction(
+            label: 'Settings',
+            onPressed: () => PermissionService.openSettings(),
+          ),
+        ),
+      );
+    } else if (mounted) {
+      final message =
+          includeCamera
+              ? 'Camera and photo library permissions are needed.'
+              : 'Photo library permission is needed to pick images.';
+      _showErrorSnackBar(message);
     }
   }
 
   Future<void> _createSticker() async {
     if (_inputImage == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select an image first.')),
-      );
+      _showErrorSnackBar('Please select an image first.');
       return;
     }
+
+    setState(() {
+      _isProcessing = true;
+      _stickerImage = null;
+    });
+
     try {
-      setState(() {
-        _stickerImage = null; // Show loading or clear previous
-      });
-      final Uint8List? stickerBytes = await FlutterStickerMaker.makeSticker(
+      final stickerBytes = await FlutterStickerMaker.makeSticker(
         _inputImage!,
-        borderColor: _borderColor,
         addBorder: _addBorder,
+        borderColor: _borderColor,
         borderWidth: _borderWidth,
       );
+
       setState(() {
         _stickerImage = stickerBytes;
+        _isProcessing = false;
       });
+
       if (stickerBytes == null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to create sticker. No result.')),
-        );
+        _showErrorSnackBar('Failed to create sticker. No result returned.');
       }
+    } on StickerException catch (e) {
+      setState(() {
+        _isProcessing = false;
+      });
+      _showErrorSnackBar('Sticker creation failed: ${e.message}');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to create sticker: $e')));
-      }
+      setState(() {
+        _isProcessing = false;
+      });
+      _showErrorSnackBar('Unexpected error: $e');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[400],
-      appBar: AppBar(title: const Text('Sticker Maker Demo')),
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(title: const Text('Sticker Maker Demo'), elevation: 2),
       body: SingleChildScrollView(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              // Action buttons
-              ElevatedButton(
-                onPressed: _pickImageFromGallery,
-                child: const Text('Pick Image from Gallery'),
-              ),
-              ElevatedButton(
-                onPressed: _captureImageWithCamera,
-                child: const Text('Capture Image with Camera'),
-              ),
-              const SizedBox(height: 20),
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildActionButtons(),
+            if (_inputImage != null) ...[
+              const SizedBox(height: 24),
+              _buildBorderControls(),
+              const SizedBox(height: 16),
+              _buildCreateStickerButton(),
+            ],
+            if (_inputImage != null || _stickerImage != null) ...[
+              const SizedBox(height: 24),
+              _buildImageDisplay(),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
-              // Border controls
-              if (_inputImage != null) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text('Add Border:'),
-                    Switch(
-                      value: _addBorder,
-                      onChanged: (value) {
-                        setState(() {
-                          _addBorder = value;
-                        });
-                      },
-                    ),
-                  ],
+  Widget _buildActionButtons() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            const Text(
+              'Select an Image',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _pickImageFromGallery,
+                    icon: const Icon(Icons.photo_library),
+                    label: const Text('Gallery'),
+                  ),
                 ),
-                if (_addBorder) ...[
-                  const Text('Border Color:'),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildColorButton('#FFFFFF', 'White'),
-                      _buildColorButton('#FF0000', 'Red'),
-                      _buildColorButton('#00FF00', 'Green'),
-                      _buildColorButton('#0000FF', 'Blue'),
-                      _buildColorButton('#FFFF00', 'Yellow'),
-                    ],
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _captureImageWithCamera,
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Camera'),
                   ),
-                  const SizedBox(height: 10),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Column(
-                      children: [
-                        Text('Border Width: ${_borderWidth.round()}'),
-                        Slider(
-                          value: _borderWidth,
-                          min: 2.0,
-                          max: 30.0,
-                          divisions: 28,
-                          onChanged: (value) {
-                            setState(() {
-                              _borderWidth = value;
-                            });
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                ElevatedButton(
-                  onPressed: _createSticker,
-                  child: const Text('Create Sticker'),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-              // Responsive image layout
-              if (_inputImage != null || _stickerImage != null)
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final isLargeScreen = constraints.maxWidth > 600;
-
-                      if (isLargeScreen) {
-                        // Horizontal layout for large screens
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (_inputImage != null)
-                              Expanded(
-                                child: Column(
-                                  children: [
-                                    const Text(
-                                      'Input Image:',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Container(
-                                      constraints: const BoxConstraints(
-                                        maxHeight: 300,
-                                      ),
-                                      child: Image.memory(
-                                        _inputImage!,
-                                        fit: BoxFit.contain,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            if (_inputImage != null && _stickerImage != null)
-                              const SizedBox(width: 20),
-                            if (_stickerImage != null)
-                              Expanded(
-                                child: Column(
-                                  children: [
-                                    const Text(
-                                      'Sticker Result:',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Container(
-                                      constraints: const BoxConstraints(
-                                        maxHeight: 300,
-                                      ),
-                                      child: Image.memory(
-                                        _stickerImage!,
-                                        fit: BoxFit.contain,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        );
-                      } else {
-                        // Vertical layout for small screens
-                        return Column(
-                          children: [
-                            if (_inputImage != null) ...[
-                              const Text(
-                                'Input Image:',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              Image.memory(_inputImage!, height: 200),
-                              const SizedBox(height: 20),
-                            ],
-                            if (_stickerImage != null) ...[
-                              const Text(
-                                'Sticker Result:',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              Image.memory(_stickerImage!, height: 200),
-                            ],
-                          ],
-                        );
-                      }
-                    },
-                  ),
-                ),
+  Widget _buildBorderControls() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Border Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            SwitchListTile(
+              title: const Text('Add Border'),
+              value: _addBorder,
+              onChanged: (value) {
+                setState(() {
+                  _addBorder = value;
+                });
+              },
+            ),
+            if (_addBorder) ...[
+              const SizedBox(height: 16),
+              const Text('Border Color:'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  _buildColorButton('#FFFFFF', 'White'),
+                  _buildColorButton('#FF0000', 'Red'),
+                  _buildColorButton('#00FF00', 'Green'),
+                  _buildColorButton('#0000FF', 'Blue'),
+                  _buildColorButton('#FFFF00', 'Yellow'),
+                  _buildColorButton('#FF00FF', 'Magenta'),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text('Border Width: ${_borderWidth.round()}px'),
+              Slider(
+                value: _borderWidth,
+                min: StickerDefaults.minBorderWidth,
+                max: StickerDefaults.maxBorderWidth,
+                divisions: 50,
+                onChanged: (value) {
+                  setState(() {
+                    _borderWidth = value;
+                  });
+                },
+              ),
             ],
-          ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCreateStickerButton() {
+    return SizedBox(
+      height: 50,
+      child: ElevatedButton.icon(
+        onPressed: _isProcessing ? null : _createSticker,
+        icon:
+            _isProcessing
+                ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                : const Icon(Icons.auto_fix_high),
+        label: Text(_isProcessing ? 'Creating Sticker...' : 'Create Sticker'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Theme.of(context).primaryColor,
+          foregroundColor: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageDisplay() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isLargeScreen = constraints.maxWidth > 600;
+
+        if (isLargeScreen && _inputImage != null && _stickerImage != null) {
+          return _buildHorizontalImageLayout();
+        } else {
+          return _buildVerticalImageLayout();
+        }
+      },
+    );
+  }
+
+  Widget _buildHorizontalImageLayout() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_inputImage != null)
+          Expanded(child: _buildImageCard('Original Image', _inputImage!)),
+        if (_inputImage != null && _stickerImage != null)
+          const SizedBox(width: 16),
+        if (_stickerImage != null)
+          Expanded(child: _buildImageCard('Sticker Result', _stickerImage!)),
+      ],
+    );
+  }
+
+  Widget _buildVerticalImageLayout() {
+    return Column(
+      children: [
+        if (_inputImage != null) ...[
+          _buildImageCard('Original Image', _inputImage!),
+          const SizedBox(height: 16),
+        ],
+        if (_stickerImage != null)
+          _buildImageCard('Sticker Result', _stickerImage!),
+      ],
+    );
+  }
+
+  Widget _buildImageCard(String title, Uint8List imageBytes) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 300),
+              child: Image.memory(imageBytes, fit: BoxFit.contain),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildColorButton(String color, String label) {
+    final isSelected = _borderColor == color;
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -344,24 +384,24 @@ class _StickerPageState extends State<StickerPage> {
         });
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: Color(int.parse(color.substring(1), radix: 16) + 0xFF000000),
           border: Border.all(
-            color: _borderColor == color ? Colors.black : Colors.grey,
-            width: _borderColor == color ? 3 : 1,
+            color: isSelected ? Colors.black : Colors.grey,
+            width: isSelected ? 3 : 1,
           ),
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           label,
           style: TextStyle(
             color:
-                color == '#FFFFFF' || color == '#FFFF00'
+                ['#FFFFFF', '#FFFF00'].contains(color)
                     ? Colors.black
                     : Colors.white,
             fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
         ),
       ),

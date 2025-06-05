@@ -33,12 +33,23 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
   }
 
   private func makeSticker(from image: UIImage, addBorder: Bool, borderColor: CIColor, borderWidth: CGFloat, completion: @escaping (UIImage?) -> Void) {
-    guard let inputCIImage = CIImage(image: image) else {
+    // Preprocess image for better quality
+    guard let preprocessedImage = preprocessImage(image),
+          let inputCIImage = CIImage(image: preprocessedImage) else {
       completion(nil)
       return
     }
-    let handler = VNImageRequestHandler(ciImage: inputCIImage)
+    
+    let handler = VNImageRequestHandler(ciImage: inputCIImage, options: [
+      VNImageOption.cameraIntrinsics: NSNull(),
+      VNImageOption.ciContext: CIContext(options: [.useSoftwareRenderer: false])
+    ])
+    
     let request = VNGenerateForegroundInstanceMaskRequest()
+    // Enhanced quality settings
+    request.revision = VNGenerateForegroundInstanceMaskRequestRevision1
+    request.preferBackgroundProcessing = true
+    
     DispatchQueue.global(qos: .userInitiated).async {
       do {
         try handler.perform([request])
@@ -46,10 +57,26 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
           completion(nil)
           return
         }
-        let maskPixelBuffer = try result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
+        
+        // Use higher quality mask generation
+        let maskPixelBuffer = try result.generateScaledMaskForImage(
+          forInstances: result.allInstances, 
+          from: handler
+        )
+        
+        // Apply gaussian blur to smooth mask edges
         let maskCIImage = CIImage(cvPixelBuffer: maskPixelBuffer)
-        let stickerCIImage = self.apply(maskImage: maskCIImage, to: inputCIImage, addBorder: addBorder, borderColor: borderColor, borderWidth: borderWidth)
-        let context = CIContext()
+        let smoothedMask = self.smoothMaskEdges(maskCIImage)
+        
+        let stickerCIImage = self.apply(
+          maskImage: smoothedMask, 
+          to: inputCIImage, 
+          addBorder: addBorder, 
+          borderColor: borderColor, 
+          borderWidth: borderWidth
+        )
+        
+        let context = CIContext(options: [.useSoftwareRenderer: false])
         if let cgImage = context.createCGImage(stickerCIImage, from: stickerCIImage.extent) {
           let stickerImage = UIImage(cgImage: cgImage)
           completion(stickerImage)
@@ -60,6 +87,41 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
         completion(nil)
       }
     }
+  }
+  
+  private func preprocessImage(_ image: UIImage) -> UIImage? {
+    guard let cgImage = image.cgImage else { return nil }
+    
+    let ciImage = CIImage(cgImage: cgImage)
+    let context = CIContext()
+    
+    // Apply noise reduction and contrast enhancement
+    let noiseFilter = CIFilter.noiseReduction()
+    noiseFilter.inputImage = ciImage
+    noiseFilter.noiseLevel = 0.02
+    noiseFilter.sharpness = 0.4
+    
+    let contrastFilter = CIFilter.colorControls()
+    contrastFilter.inputImage = noiseFilter.outputImage
+    contrastFilter.contrast = 1.1
+    contrastFilter.brightness = 0.05
+    contrastFilter.saturation = 1.05
+    
+    guard let outputImage = contrastFilter.outputImage,
+          let processedCGImage = context.createCGImage(outputImage, from: outputImage.extent) else {
+      return image
+    }
+    
+    return UIImage(cgImage: processedCGImage)
+  }
+  
+  private func smoothMaskEdges(_ maskImage: CIImage) -> CIImage {
+    // Apply slight gaussian blur to smooth mask edges
+    let blurFilter = CIFilter.gaussianBlur()
+    blurFilter.inputImage = maskImage
+    blurFilter.radius = 1.0
+    
+    return blurFilter.outputImage ?? maskImage
   }
 
   private func apply(maskImage: CIImage, to inputImage: CIImage, addBorder: Bool, borderColor: CIColor, borderWidth: CGFloat) -> CIImage {
