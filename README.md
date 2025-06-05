@@ -7,7 +7,6 @@ A cross-platform Flutter plugin to create stickers by removing backgrounds from 
 - **High-quality detection**: Advanced ML models with preprocessing for better accuracy
 - iOS: Uses Vision and CoreImage with enhanced quality settings and edge smoothing
 - Android: Uses Google ML Kit Selfie Segmentation with image preprocessing and mask smoothing
-- Handles storage, gallery, and camera permissions automatically
 - Configurable border support with customizable color and width
 - Simple Dart API
 
