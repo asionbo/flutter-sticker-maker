@@ -1,7 +1,7 @@
 name: flutter_sticker_maker
 description: Flutter plugin to create stickers from images using iOS Vision/CoreImage and Android MLKit.
 version: 0.1.1
-repository: https://github.com/asionbo/flutter_sticker_maker
+repository: https://github.com/asionbo/flutter-sticker-maker
 # publish_to: https://pub.dartlang.org
 
 environment:
