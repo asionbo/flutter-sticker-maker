@@ -1,4 +1,4 @@
-package com.yourdomain.flutter_sticker_maker
+package com.asionbo.flutter_sticker_maker
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -8,7 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.NonNull
 import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.segmentation.selfie.SelfieSegmenter
+import com.google.mlkit.vision.segmentation.Segmentation
 import com.google.mlkit.vision.segmentation.selfie.SelfieSegmenterOptions
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
@@ -49,7 +49,7 @@ class FlutterStickerMakerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
         val options = SelfieSegmenterOptions.Builder()
             .setDetectorMode(SelfieSegmenterOptions.SINGLE_IMAGE_MODE)
             .build()
-        val segmenter = SelfieSegmenter.getClient(options)
+        val segmenter = Segmentation.getClient(options)
 
         segmenter.process(inputImage)
             .addOnSuccessListener { segmentationMask ->
