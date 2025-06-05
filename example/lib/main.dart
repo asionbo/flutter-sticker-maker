@@ -301,9 +301,12 @@ class _StickerPageState extends State<StickerPage> {
                 ? const SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
-                : const Icon(Icons.auto_fix_high),
+                : const Icon(Icons.auto_fix_high, color: Colors.white),
         label: Text(_isProcessing ? 'Creating Sticker...' : 'Create Sticker'),
         style: ElevatedButton.styleFrom(
           backgroundColor: Theme.of(context).primaryColor,
@@ -356,6 +359,7 @@ class _StickerPageState extends State<StickerPage> {
 
   Widget _buildImageCard(String title, Uint8List imageBytes) {
     return Card(
+      color: Colors.grey[400],
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
