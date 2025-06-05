@@ -41,6 +41,13 @@ final stickerWithBorder = await FlutterStickerMaker.makeSticker(
 - `borderColor`: Hex color string for the border (default: '#FFFFFF')
 - `borderWidth`: Width of the border in pixels (default: 12.0)
 
+## Examples
+
+### Demo App Screenshots
+
+![example](example/assets/images/IMG_0121.PNG)
+
+
 See `example/` for a full demo app.
 
 ## Setup
