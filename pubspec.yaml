@@ -19,6 +19,7 @@ flutter:
 dependencies:
   flutter:
     sdk: flutter
+  google_mlkit_selfie_segmentation: ^0.10.0
 
 dev_dependencies:
   flutter_test:
