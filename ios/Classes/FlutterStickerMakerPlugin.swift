@@ -213,10 +213,9 @@ private class MaskGenerator {
             throw StickerMakerError.invalidImageData
         }
         
-        switch MLBackend.current {
-        case .vision:
+        if #available(iOS 17.0, *) {
             return try generateVisionMask(for: inputCIImage)
-        case .mlkit:
+        } else {
             return try generateMLKitMask(for: inputCIImage, originalImage: image)
         }
     }
