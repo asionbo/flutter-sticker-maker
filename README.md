@@ -4,9 +4,8 @@ A cross-platform Flutter plugin to create stickers by removing backgrounds from 
 
 ## Features
 
-- **High-quality detection**: Advanced ML models with preprocessing for better accuracy
-- iOS: Uses Vision and CoreImage with enhanced quality settings and edge smoothing
-- Android: Uses ONNX models for background removal on Android and iOS below iOS 17.0
+- iOS 17.0: Uses Vision and CoreImage with enhanced quality settings and edge smoothing
+- Android and iOS below 17.0: Uses **ONNX** models for background removal
 - Configurable border support with customizable color and width
 - Simple Dart API
 
