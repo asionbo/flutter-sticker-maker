@@ -19,6 +19,7 @@ flutter:
 dependencies:
   flutter:
     sdk: flutter
+  onnxruntime: ^1.19.0
 
 dev_dependencies:
   flutter_test:

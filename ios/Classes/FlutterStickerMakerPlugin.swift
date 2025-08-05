@@ -49,17 +49,26 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard call.method == "makeSticker" else {
+        switch call.method {
+        case "makeSticker":
+            // Only handle sticker creation for iOS 17+
+            if #available(iOS 17.0, *) {
+                do {
+                    let parameters = try validateAndParseArguments(call.arguments)
+                    processSticker(with: parameters, result: result)
+                } catch {
+                    os_log("Parameter validation failed: %@", log: logger, type: .error, error.localizedDescription)
+                    result(FlutterError(code: "INVALID_ARGUMENTS", message: error.localizedDescription, details: nil))
+                }
+            } else {
+                // For iOS < 17.0, delegate to Dart ONNX implementation
+                result(FlutterError(code: "UNSUPPORTED_VERSION", message: "iOS version < 17.0 should use ONNX implementation", details: nil))
+            }
+        case "getIOSVersion":
+            let version = UIDevice.current.systemVersion
+            result(version)
+        default:
             result(FlutterMethodNotImplemented)
-            return
-        }
-        
-        do {
-            let parameters = try validateAndParseArguments(call.arguments)
-            processSticker(with: parameters, result: result)
-        } catch {
-            os_log("Parameter validation failed: %@", log: logger, type: .error, error.localizedDescription)
-            result(FlutterError(code: "INVALID_ARGUMENTS", message: error.localizedDescription, details: nil))
         }
     }
     
@@ -190,6 +199,7 @@ private class ImageProcessor {
 }
 
 // MARK: - Mask Generator
+@available(iOS 17.0, *)
 private class MaskGenerator {
     func generateMask(for image: UIImage) throws -> CIImage {
         guard let inputCIImage = CIImage(image: image) else {

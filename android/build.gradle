@@ -46,5 +46,5 @@ android {
 }
 
 dependencies {
-    implementation 'com.google.mlkit:segmentation-selfie:16.0.0-beta6'
+    // ML Kit dependency removed - using ONNX implementation in Dart
 }
