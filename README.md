@@ -1,12 +1,11 @@
 # Flutter Sticker Maker
 
-A cross-platform Flutter plugin to create stickers by removing backgrounds from images using iOS Vision/CoreImage and Android MLKit.
+A cross-platform Flutter plugin to create stickers by removing backgrounds from images using iOS Vision/CoreImage and ONNX.
 
 ## Features
 
-- **High-quality detection**: Advanced ML models with preprocessing for better accuracy
-- iOS: Uses Vision and CoreImage with enhanced quality settings and edge smoothing
-- Android: Uses Google ML Kit Selfie Segmentation with image preprocessing and mask smoothing
+- iOS 17.0: Uses Vision and CoreImage with enhanced quality settings and edge smoothing
+- Android and iOS below 17.0: Uses **ONNX** models for background removal
 - Configurable border support with customizable color and width
 - Simple Dart API
 
@@ -15,7 +14,7 @@ A cross-platform Flutter plugin to create stickers by removing backgrounds from 
 - **Image preprocessing**: Automatic contrast and brightness enhancement
 - **Edge smoothing**: Advanced algorithms to create natural-looking edges
 - **Noise reduction**: Built-in filtering for cleaner results
-- **High-resolution support**: Optimized for images up to 4K resolution
+- **High-resolution support**: Maintains image quality for large stickers
 
 ## Usage
 
@@ -52,7 +51,7 @@ See `example/` for a full demo app.
 
 ## Setup
 
-- iOS: Minimum iOS 17.0
+- iOS: Minimum iOS 15.5
 - Android: Minimum SDK 21
 
 ### Permissions
@@ -74,3 +73,7 @@ Add to ios/Runner/Info.plist:
 <key>NSPhotoLibraryAddUsageDescription</key>
 <string>This app saves stickers to your photo library.</string>
 ```
+
+## Thanks
+
+[image_background_remover](https://github.com/Netesh5/image_background_remover)

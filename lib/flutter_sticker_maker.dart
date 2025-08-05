@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'src/constants.dart';
 import 'src/exceptions.dart';
+import 'src/onnx_sticker_processor.dart';
 
 export 'src/constants.dart';
 export 'src/exceptions.dart';
@@ -46,16 +48,28 @@ class FlutterStickerMaker {
     _validateInput(imageBytes, borderColor, borderWidth);
 
     try {
-      final result = await _channel
-          .invokeMethod<Uint8List>('makeSticker', {
-            'image': imageBytes,
-            'addBorder': addBorder,
-            'borderColor': borderColor,
-            'borderWidth': borderWidth,
-          })
-          .timeout(Duration(seconds: StickerDefaults.processingTimeoutSeconds));
+      // Determine which implementation to use based on platform and version
+      if (await _shouldUseOnnx()) {
+        // Use ONNX implementation for Android and iOS < 17
+        return await OnnxStickerProcessor.makeSticker(
+          imageBytes,
+          addBorder: addBorder,
+          borderColor: borderColor,
+          borderWidth: borderWidth,
+        );
+      } else {
+        // Use platform-specific implementation (iOS 17+ only)
+        final result = await _channel
+            .invokeMethod<Uint8List>('makeSticker', {
+              'image': imageBytes,
+              'addBorder': addBorder,
+              'borderColor': borderColor,
+              'borderWidth': borderWidth,
+            })
+            .timeout(Duration(seconds: StickerDefaults.processingTimeoutSeconds));
 
-      return result;
+        return result;
+      }
     } on TimeoutException {
       throw StickerException(
         'Processing timeout - image may be too large or complex',
@@ -74,6 +88,40 @@ class FlutterStickerMaker {
         errorCode: 'UNKNOWN',
       );
     }
+  }
+
+  /// Determines whether to use ONNX implementation based on platform and version
+  static Future<bool> _shouldUseOnnx() async {
+    if (Platform.isAndroid) {
+      // Android always uses ONNX
+      return true;
+    } else if (Platform.isIOS) {
+      // iOS uses ONNX for versions below 17.0
+      final version = await _getIOSVersion();
+      return version < 17.0;
+    }
+    // Default to ONNX for other platforms
+    return true;
+  }
+
+  /// Gets the iOS version number
+  static Future<double> _getIOSVersion() async {
+    try {
+      final version = await _channel.invokeMethod<String>('getIOSVersion');
+      if (version != null) {
+        // Parse version string like "16.5" to double
+        final parts = version.split('.');
+        if (parts.isNotEmpty) {
+          final major = int.tryParse(parts[0]) ?? 15;
+          final minor = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+          return major + (minor / 10.0);
+        }
+      }
+    } catch (e) {
+      // If we can't determine version, assume older iOS and use ONNX
+      return 15.0;
+    }
+    return 15.0;
   }
 
   /// Validates input parameters for sticker creation.
