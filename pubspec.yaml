@@ -9,6 +9,8 @@ environment:
   flutter: ">=3.24.0"
 
 flutter:
+  assets:
+    - assets/
   plugin:
     platforms:
       ios:
@@ -19,7 +21,7 @@ flutter:
 dependencies:
   flutter:
     sdk: flutter
-  onnxruntime: ^1.19.0
+  onnxruntime: ^1.4.1
 
 dev_dependencies:
   flutter_test:

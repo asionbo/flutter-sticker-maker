@@ -24,4 +24,8 @@ class StickerDefaults {
   /// Valid image format headers
   static const List<int> pngHeader = [0x89, 0x50, 0x4E, 0x47];
   static const List<int> jpegHeader = [0xFF, 0xD8, 0xFF];
+
+  /// Path for ONNX model
+  static const String onnxModelPath =
+      'packages/flutter_sticker_maker/assets/model.onnx';
 }
