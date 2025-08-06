@@ -1,3 +1,6 @@
+## 0.1.4
+* Updated Android target SDK version to 35.
+  
 ## 0.1.3
 * Enhanced background removal for Android and iOS using ONNX models.
 * Added resource management method.
