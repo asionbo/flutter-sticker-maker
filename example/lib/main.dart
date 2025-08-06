@@ -19,7 +19,29 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: const StickerPage(),
+      home: const MainPage(),
+    );
+  }
+}
+
+class MainPage extends StatelessWidget {
+  const MainPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Sticker Maker Example')),
+      body: Center(
+        child: ElevatedButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const StickerPage()),
+            );
+          },
+          child: const Text('Go to Sticker Maker'),
+        ),
+      ),
     );
   }
 }
@@ -38,6 +60,20 @@ class _StickerPageState extends State<StickerPage> {
   String _borderColor = StickerDefaults.defaultBorderColor;
   double _borderWidth = StickerDefaults.defaultBorderWidth;
   bool _isProcessing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    FlutterStickerMaker.initialize();
+  }
+
+  @override
+  void dispose() {
+    _inputImage = null;
+    _stickerImage = null;
+    FlutterStickerMaker.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickImageFromGallery() async {
     try {

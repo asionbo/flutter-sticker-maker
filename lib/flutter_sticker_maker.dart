@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'src/constants.dart';
 import 'src/exceptions.dart';
 import 'src/onnx_sticker_processor.dart';
+
+import 'dart:developer' as dev;
 
 export 'src/constants.dart';
 export 'src/exceptions.dart';
@@ -11,6 +14,40 @@ export 'src/exceptions.dart';
 /// Flutter plugin for creating stickers by removing image backgrounds using ML Kit.
 class FlutterStickerMaker {
   static const MethodChannel _channel = MethodChannel('flutter_sticker_maker');
+  static bool _isPluginInitialized = false;
+  static bool _isUsingOnnx = false;
+
+  /// Initialize the plugin resources.
+  ///
+  /// This method should be called once, preferably in your app's main() function
+  /// or in the initState() of your root widget for optimal performance.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// void main() async {
+  ///   WidgetsFlutterBinding.ensureInitialized();
+  ///   await FlutterStickerMaker.initialize();
+  ///   runApp(MyApp());
+  /// }
+  /// ```
+  static Future<void> initialize() async {
+    if (_isPluginInitialized) return;
+
+    try {
+      // Pre-initialize ONNX if we'll be using it
+      _isUsingOnnx = await _shouldUseOnnx();
+      if (_isUsingOnnx) {
+        await OnnxStickerProcessor.initialize();
+      }
+      _isPluginInitialized = true;
+    } catch (e) {
+      // Don't fail initialization completely, just log the error
+      // The plugin can still work with lazy initialization
+      if (kDebugMode) {
+        print('FlutterStickerMaker: Warning - Pre-initialization failed: $e');
+      }
+    }
+  }
 
   /// Creates a sticker by removing background from an image using ML Kit.
   ///
@@ -49,7 +86,8 @@ class FlutterStickerMaker {
 
     try {
       // Determine which implementation to use based on platform and version
-      if (await _shouldUseOnnx()) {
+      _isUsingOnnx = await _shouldUseOnnx();
+      if (_isUsingOnnx) {
         // Use ONNX implementation for Android and iOS < 17
         return await OnnxStickerProcessor.makeSticker(
           imageBytes,
@@ -66,7 +104,9 @@ class FlutterStickerMaker {
               'borderColor': borderColor,
               'borderWidth': borderWidth,
             })
-            .timeout(Duration(seconds: StickerDefaults.processingTimeoutSeconds));
+            .timeout(
+              Duration(seconds: StickerDefaults.processingTimeoutSeconds),
+            );
 
         return result;
       }
@@ -176,5 +216,39 @@ class FlutterStickerMaker {
       if (data[i] != header[i]) return false;
     }
     return true;
+  }
+
+  /// Clean up resources used by the plugin.
+  ///
+  /// This method should be called when the plugin is no longer needed,
+  /// typically in the dispose() method of your widget or when the app
+  /// is shutting down.
+  ///
+  /// **Example:**
+  /// ```dart
+  /// @override
+  /// void dispose() {
+  ///   FlutterStickerMaker.dispose();
+  ///   super.dispose();
+  /// }
+  /// ```
+  static void dispose() {
+    try {
+      // Clean up ONNX resources only if we're using ONNX
+      if (_isUsingOnnx) {
+        OnnxStickerProcessor.dispose();
+      }
+      _isPluginInitialized = false;
+      _isUsingOnnx = false;
+      if (kDebugMode) {
+        dev.log('Resources disposed successfully', name: 'FlutterStickerMaker');
+      }
+    } catch (e) {
+      // Silently handle disposal errors to prevent app crashes
+      // during shutdown
+      if (kDebugMode) {
+        dev.log('Warning - Disposal failed: $e', name: 'FlutterStickerMaker');
+      }
+    }
   }
 }
