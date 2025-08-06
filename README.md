@@ -18,6 +18,16 @@ A cross-platform Flutter plugin to create stickers by removing backgrounds from 
 
 ## Usage
 
+alternatively, you can initialize the plugin with the following code:
+```dart
+FlutterStickerMaker.initialize();
+```
+and dispose it when done:
+```dart
+FlutterStickerMaker.dispose();
+```
+
+make a sticker from an image:
 ```dart
 import 'package:flutter_sticker_maker/flutter_sticker_maker.dart';
 

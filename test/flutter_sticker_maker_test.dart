@@ -39,34 +39,46 @@ void main() {
     tearDown(() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null);
+      // Clean up after each test
+      FlutterStickerMaker.dispose();
+    });
+
+    group('Initialization', () {
+      test('initialize can be called multiple times safely', () async {
+        expect(() async {
+          await FlutterStickerMaker.initialize();
+          await FlutterStickerMaker.initialize();
+          await FlutterStickerMaker.initialize();
+        }, returnsNormally);
+      });
+
+      test('makeSticker works without explicit initialization', () async {
+        final result = await FlutterStickerMaker.makeSticker(validPngBytes);
+        expect(result, isNotNull);
+        expect(result, isA<Uint8List>());
+      });
     });
 
     group('Basic functionality', () {
-      test(
-        'makeSticker works with valid PNG input',
-        () async {
-          final result = await FlutterStickerMaker.makeSticker(validPngBytes);
+      test('makeSticker works with valid PNG input', () async {
+        final result = await FlutterStickerMaker.makeSticker(validPngBytes);
 
-          // Should succeed (either through platform channel or ONNX)
-          expect(result, isNotNull);
-          expect(result, isA<Uint8List>());
-        },
-      );
+        // Should succeed (either through platform channel or ONNX)
+        expect(result, isNotNull);
+        expect(result, isA<Uint8List>());
+      });
 
-      test(
-        'makeSticker works with custom parameters',
-        () async {
-          final result = await FlutterStickerMaker.makeSticker(
-            validPngBytes,
-            addBorder: false,
-            borderColor: '#FF0000',
-            borderWidth: 8.0,
-          );
+      test('makeSticker works with custom parameters', () async {
+        final result = await FlutterStickerMaker.makeSticker(
+          validPngBytes,
+          addBorder: false,
+          borderColor: '#FF0000',
+          borderWidth: 8.0,
+        );
 
-          expect(result, isNotNull);
-          expect(result, isA<Uint8List>());
-        },
-      );
+        expect(result, isNotNull);
+        expect(result, isA<Uint8List>());
+      });
     });
 
     group('Input validation', () {
@@ -169,7 +181,7 @@ void main() {
         // Test PNG
         final result1 = await FlutterStickerMaker.makeSticker(validPngBytes);
         expect(result1, isNotNull);
-        
+
         // Test JPEG
         final result2 = await FlutterStickerMaker.makeSticker(validJpegBytes);
         expect(result2, isNotNull);
@@ -218,12 +230,18 @@ void main() {
 
     group('Edge cases', () {
       test('handles minimum border width', () async {
-        final result = await FlutterStickerMaker.makeSticker(validPngBytes, borderWidth: 0.0);
+        final result = await FlutterStickerMaker.makeSticker(
+          validPngBytes,
+          borderWidth: 0.0,
+        );
         expect(result, isNotNull);
       });
 
       test('handles maximum border width', () async {
-        final result = await FlutterStickerMaker.makeSticker(validPngBytes, borderWidth: 50.0);
+        final result = await FlutterStickerMaker.makeSticker(
+          validPngBytes,
+          borderWidth: 50.0,
+        );
         expect(result, isNotNull);
       });
 
@@ -235,6 +253,39 @@ void main() {
 
         final result = await FlutterStickerMaker.makeSticker(largeImage);
         expect(result, isNotNull);
+      });
+    });
+
+    group('Resource management', () {
+      test('dispose method works without throwing', () {
+        expect(() => FlutterStickerMaker.dispose(), returnsNormally);
+      });
+
+      test('dispose can be called multiple times safely', () {
+        expect(() {
+          FlutterStickerMaker.dispose();
+          FlutterStickerMaker.dispose();
+          FlutterStickerMaker.dispose();
+        }, returnsNormally);
+      });
+
+      test('makeSticker works after dispose', () async {
+        // Dispose first
+        FlutterStickerMaker.dispose();
+
+        // Should still work (will reinitialize if needed)
+        final result = await FlutterStickerMaker.makeSticker(validPngBytes);
+        expect(result, isNotNull);
+        expect(result, isA<Uint8List>());
+      });
+
+      test('initialize after dispose works correctly', () async {
+        FlutterStickerMaker.dispose();
+        await FlutterStickerMaker.initialize();
+        
+        final result = await FlutterStickerMaker.makeSticker(validPngBytes);
+        expect(result, isNotNull);
+        expect(result, isA<Uint8List>());
       });
     });
   });

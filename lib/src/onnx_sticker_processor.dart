@@ -8,21 +8,101 @@ import 'package:onnxruntime/onnxruntime.dart';
 import 'dart:ui' as ui;
 import 'dart:developer' as dev;
 
+/// Memory pool for reusing byte arrays
+class _MemoryPool {
+  static final Map<int, List<Uint8List>> _pools = {};
+  static const int _maxPoolSize = 5;
+
+  static Uint8List getBuffer(int size) {
+    final pool = _pools[size];
+    if (pool != null && pool.isNotEmpty) {
+      return pool.removeLast();
+    }
+    return Uint8List(size);
+  }
+
+  static void returnBuffer(Uint8List buffer) {
+    final size = buffer.length;
+    final pool = _pools.putIfAbsent(size, () => <Uint8List>[]);
+    if (pool.length < _maxPoolSize) {
+      // Clear buffer and return to pool
+      buffer.fillRange(0, buffer.length, 0);
+      pool.add(buffer);
+    }
+  }
+
+  static void clear() {
+    _pools.clear();
+  }
+}
+
+/// Cache for processed masks and resized images
+class _ProcessingCache {
+  static final Map<String, List<double>> _maskCache = {};
+  static final Map<String, ui.Image> _imageCache = {};
+  static const int _maxCacheSize = 10;
+
+  static String _generateKey(Uint8List data, int width, int height) {
+    // Simple hash based on data characteristics
+    int hash = width.hashCode ^ height.hashCode;
+    for (int i = 0; i < math.min(data.length, 100); i += 10) {
+      hash ^= data[i].hashCode;
+    }
+    return hash.toString();
+  }
+
+  static List<double>? getMask(String key) => _maskCache[key];
+
+  static void putMask(String key, List<double> mask) {
+    if (_maskCache.length >= _maxCacheSize) {
+      _maskCache.remove(_maskCache.keys.first);
+    }
+    _maskCache[key] = mask;
+  }
+
+  static ui.Image? getImage(String key) => _imageCache[key];
+
+  static void putImage(String key, ui.Image image) {
+    if (_imageCache.length >= _maxCacheSize) {
+      final oldKey = _imageCache.keys.first;
+      _imageCache[oldKey]?.dispose();
+      _imageCache.remove(oldKey);
+    }
+    _imageCache[key] = image;
+  }
+
+  static void clear() {
+    _imageCache.values.forEach((image) => image.dispose());
+    _maskCache.clear();
+    _imageCache.clear();
+  }
+}
+
 /// ONNX-based implementation for background removal and sticker creation
 class OnnxStickerProcessor {
   static OrtSession? _session;
   static bool _isInitialized = false;
+  static bool _isInitializing = false;
+  static final Map<int, Float32List> _floatBufferPool = {};
+
+  // Pre-computed constants for better performance
+  static const mean = [0.485, 0.456, 0.406];
+  static const invStd = [1.0 / 0.229, 1.0 / 0.224, 1.0 / 0.225];
 
   /// Initialize the ONNX session with the segmentation model
   static Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (_isInitialized || _isInitializing) return;
 
+    _isInitializing = true;
     try {
       /// Initialize the ONNX runtime environment.
       await initializeOrt();
       _isInitialized = true;
     } catch (e) {
+      _isInitialized = false;
       throw Exception('Failed to initialize ONNX model: $e');
+    } finally {
+      _isInitializing = false;
     }
   }
 
@@ -73,7 +153,10 @@ class OnnxStickerProcessor {
     String borderColor = '#FFFFFF',
     double borderWidth = 12.0,
   }) async {
-    await initialize();
+    // Only initialize if not already done
+    if (!_isInitialized) {
+      await initialize();
+    }
 
     try {
       // Decode the input image
@@ -91,11 +174,18 @@ class OnnxStickerProcessor {
       final height = image.height;
       final pixels = byteData.buffer.asUint8List();
 
-      // Use actual ONNX model for background removal
-      final mask = await _runOnnxInference(pixels, width, height);
+      // Check cache first
+      final cacheKey = _ProcessingCache._generateKey(pixels, width, height);
+      List<double>? mask = _ProcessingCache.getMask(cacheKey);
 
-      // Apply the mask and create the sticker
-      final stickerBytes = await _applyStickerEffects(
+      if (mask == null) {
+        // Use actual ONNX model for background removal
+        mask = await _runOnnxInference(pixels, width, height);
+        _ProcessingCache.putMask(cacheKey, mask);
+      }
+
+      // Apply the mask and create the sticker with async processing
+      final stickerBytes = await _applyStickerEffectsAsync(
         pixels,
         mask,
         width,
@@ -122,8 +212,12 @@ class OnnxStickerProcessor {
     }
 
     try {
-      // Preprocess image for ONNX model input
-      final inputTensor = await _preprocessImageForOnnx(pixels, width, height);
+      // Preprocess image for ONNX model input with memory pooling
+      final inputTensor = await _preprocessImageForOnnxOptimized(
+        pixels,
+        width,
+        height,
+      );
 
       // Run inference with correct input name
       final inputs = {'input.1': inputTensor};
@@ -131,7 +225,11 @@ class OnnxStickerProcessor {
       final outputs = await _session!.runAsync(runOptions, inputs);
 
       // Extract mask from output
-      final mask = await _postprocessOnnxOutput(outputs, width, height);
+      final mask = await _postprocessOnnxOutputOptimized(
+        outputs,
+        width,
+        height,
+      );
 
       // Clean up tensors
       inputTensor.release();
@@ -149,34 +247,45 @@ class OnnxStickerProcessor {
     }
   }
 
-  /// Preprocess image data for ONNX model input
-  static Future<OrtValueTensor> _preprocessImageForOnnx(
+  /// Optimized preprocessing with memory pooling and efficient operations
+  static Future<OrtValueTensor> _preprocessImageForOnnxOptimized(
     Uint8List pixels,
     int originalWidth,
     int originalHeight,
   ) async {
-    // Most segmentation models expect 320x320 input
     const modelInputSize = 320;
+    final cacheKey = '${originalWidth}x${originalHeight}_$modelInputSize';
 
-    // Convert to ui.Image first
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-      pixels,
-      originalWidth,
-      originalHeight,
-      ui.PixelFormat.rgba8888,
-      completer.complete,
-    );
-    final originalImage = await completer.future;
+    // Try to get cached resized image
+    ui.Image? resizedImage = _ProcessingCache.getImage(cacheKey);
 
-    // Resize image
-    final resizedImage = await _resizeImageToModel(
-      originalImage,
+    if (resizedImage == null) {
+      // Convert to ui.Image first
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+        pixels,
+        originalWidth,
+        originalHeight,
+        ui.PixelFormat.rgba8888,
+        completer.complete,
+      );
+      final originalImage = await completer.future;
+
+      // Resize image
+      resizedImage = await _resizeImageToModelOptimized(
+        originalImage,
+        modelInputSize,
+      );
+
+      _ProcessingCache.putImage(cacheKey, resizedImage);
+      originalImage.dispose();
+    }
+
+    // Convert to normalized tensor data with pooled buffer
+    final normalizedData = await _imageToFloatTensorOptimized(
+      resizedImage,
       modelInputSize,
     );
-
-    // Convert to normalized tensor data
-    final normalizedData = await _imageToFloatTensor(resizedImage);
 
     // Create tensor with shape [1, 3, 320, 320] (NCHW format)
     final inputShape = [1, 3, modelInputSize, modelInputSize];
@@ -185,21 +294,24 @@ class OnnxStickerProcessor {
       inputShape,
     );
 
-    // Clean up
-    originalImage.dispose();
-    resizedImage.dispose();
-
     return tensor;
   }
 
-  /// Resize image for model input
-  static Future<ui.Image> _resizeImageToModel(
+  /// Optimized image resizing using direct pixel manipulation
+  static Future<ui.Image> _resizeImageToModelOptimized(
     ui.Image image,
     int targetSize,
   ) async {
+    // Use a more efficient resizing approach for better performance
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
-    final paint = ui.Paint()..filterQuality = ui.FilterQuality.high;
+    final paint =
+        ui.Paint()
+          ..filterQuality =
+              ui
+                  .FilterQuality
+                  .medium // Balanced quality/performance
+          ..isAntiAlias = false; // Faster rendering
 
     final srcRect = ui.Rect.fromLTWH(
       0,
@@ -219,33 +331,44 @@ class OnnxStickerProcessor {
     return picture.toImage(targetSize, targetSize);
   }
 
-  /// Convert image to normalized float tensor (ImageNet normalization)
-  static Future<Float32List> _imageToFloatTensor(ui.Image image) async {
+  /// Optimized tensor conversion with memory pooling
+  static Future<Float32List> _imageToFloatTensorOptimized(
+    ui.Image image,
+    int modelInputSize,
+  ) async {
     final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     if (byteData == null) throw Exception("Failed to get image ByteData");
 
     final rgbaBytes = byteData.buffer.asUint8List();
-    final pixelCount = image.width * image.height;
-    final floats = Float32List(pixelCount * 3);
+    final pixelCount = modelInputSize * modelInputSize;
 
-    // ImageNet mean and std
-    final mean = [0.485, 0.456, 0.406];
-    final std = [0.229, 0.224, 0.225];
+    // Use pooled buffer if available
+    final bufferSize = pixelCount * 3;
+    Float32List floats =
+        _floatBufferPool[bufferSize] ?? Float32List(bufferSize);
+    _floatBufferPool[bufferSize] = floats;
 
-    // Extract and normalize RGB channels with ImageNet mean/std
+    // Pre-compute division
+
+    // Optimized loop with direct array access
     for (int i = 0; i < pixelCount; i++) {
-      floats[i] = (rgbaBytes[i * 4] / 255.0 - mean[0]) / std[0]; // Red
+      final baseIndex = i * 4;
+      floats[i] =
+          (rgbaBytes[baseIndex] * 0.00392156862745098 - mean[0]) *
+          invStd[0]; // R (1/255 = 0.00392...)
       floats[pixelCount + i] =
-          (rgbaBytes[i * 4 + 1] / 255.0 - mean[1]) / std[1]; // Green
+          (rgbaBytes[baseIndex + 1] * 0.00392156862745098 - mean[1]) *
+          invStd[1]; // G
       floats[2 * pixelCount + i] =
-          (rgbaBytes[i * 4 + 2] / 255.0 - mean[2]) / std[2]; // Blue
+          (rgbaBytes[baseIndex + 2] * 0.00392156862745098 - mean[2]) *
+          invStd[2]; // B
     }
 
     return floats;
   }
 
-  /// Postprocess ONNX model output to extract segmentation mask
-  static Future<List<double>> _postprocessOnnxOutput(
+  /// Optimized postprocessing with efficient data handling
+  static Future<List<double>> _postprocessOnnxOutputOptimized(
     List<OrtValue?>? outputs,
     int targetWidth,
     int targetHeight,
@@ -259,38 +382,14 @@ class OnnxStickerProcessor {
       throw Exception('Output tensor is null');
     }
 
-    // Handle the output format - expect [1, 1, H, W] or [1, H, W]
-    List maskData;
-    if (outputTensor is List && outputTensor.isNotEmpty) {
-      if (outputTensor[0] is List && outputTensor[0][0] is List) {
-        // Format: [1, 1, H, W] or [1, 2, H, W]
-        maskData = outputTensor[0][0]; // Take first channel
-      } else if (outputTensor[0] is List) {
-        // Format: [1, H, W]
-        maskData = outputTensor[0];
-      } else {
-        throw Exception('Unexpected output tensor format');
-      }
-    } else {
-      throw Exception('Invalid output tensor structure');
-    }
-
-    // Convert to flat list of doubles
+    // More efficient data extraction
     final flatMask = <double>[];
-    for (var row in maskData) {
-      if (row is List) {
-        for (var pixel in row) {
-          flatMask.add(pixel.toDouble());
-        }
-      } else {
-        flatMask.add(row.toDouble());
-      }
-    }
+    _extractMaskDataOptimized(outputTensor, flatMask);
 
     final modelOutputSize = math.sqrt(flatMask.length).round();
 
-    // Resize mask back to original image size using bilinear interpolation
-    return _resizeMaskBilinear(
+    // Use optimized resize with pre-allocated buffer
+    return _resizeMaskBilinearOptimized(
       flatMask,
       modelOutputSize,
       modelOutputSize,
@@ -299,54 +398,81 @@ class OnnxStickerProcessor {
     );
   }
 
-  /// Resize mask using bilinear interpolation for smoother edges
-  static List<double> _resizeMaskBilinear(
+  /// Optimized mask data extraction
+  static void _extractMaskDataOptimized(
+    dynamic outputTensor,
+    List<double> flatMask,
+  ) {
+    if (outputTensor is List && outputTensor.isNotEmpty) {
+      dynamic maskData;
+      if (outputTensor[0] is List && outputTensor[0][0] is List) {
+        maskData = outputTensor[0][0];
+      } else if (outputTensor[0] is List) {
+        maskData = outputTensor[0];
+      } else {
+        throw Exception('Unexpected output tensor format');
+      }
+
+      // Direct conversion without nested loops where possible
+      for (var row in maskData) {
+        if (row is List) {
+          flatMask.addAll(row.map<double>((e) => e.toDouble()));
+        } else {
+          flatMask.add(row.toDouble());
+        }
+      }
+    } else {
+      throw Exception('Invalid output tensor structure');
+    }
+  }
+
+  /// Optimized bilinear resize with pre-allocated memory
+  static List<double> _resizeMaskBilinearOptimized(
     List<double> mask,
     int sourceWidth,
     int sourceHeight,
     int targetWidth,
     int targetHeight,
   ) {
-    final resized = List<double>.filled(targetWidth * targetHeight, 0.0);
+    final resized = Float64List(
+      targetWidth * targetHeight,
+    ); // Use typed list for better performance
+
+    // Pre-compute scaling factors
+    final scaleX = sourceWidth / targetWidth;
+    final scaleY = sourceHeight / targetHeight;
 
     for (int y = 0; y < targetHeight; y++) {
+      final srcY = y * scaleY;
+      final y1 = srcY.floor();
+      final y2 = (y1 + 1).clamp(0, sourceHeight - 1);
+      final wy = srcY - y1;
+      final wy1 = 1.0 - wy;
+
       for (int x = 0; x < targetWidth; x++) {
-        // Map to floating point coordinates in the source mask
-        final srcX = x * sourceWidth / targetWidth;
-        final srcY = y * sourceHeight / targetHeight;
-
-        // Get integer coordinates for the four surrounding pixels
+        final srcX = x * scaleX;
         final x1 = srcX.floor();
-        final y1 = srcY.floor();
         final x2 = (x1 + 1).clamp(0, sourceWidth - 1);
-        final y2 = (y1 + 1).clamp(0, sourceHeight - 1);
-
-        // Calculate interpolation weights
         final wx = srcX - x1;
-        final wy = srcY - y1;
+        final wx1 = 1.0 - wx;
 
-        // Get values from source mask
+        // Get values from source mask with direct indexing
         final q11 = mask[y1 * sourceWidth + x1];
         final q21 = mask[y1 * sourceWidth + x2];
         final q12 = mask[y2 * sourceWidth + x1];
         final q22 = mask[y2 * sourceWidth + x2];
 
-        // Perform bilinear interpolation
-        final interpolated =
-            q11 * (1 - wx) * (1 - wy) +
-            q21 * wx * (1 - wy) +
-            q12 * (1 - wx) * wy +
-            q22 * wx * wy;
-
-        resized[y * targetWidth + x] = interpolated;
+        // Optimized bilinear interpolation
+        resized[y * targetWidth + x] =
+            q11 * wx1 * wy1 + q21 * wx * wy1 + q12 * wx1 * wy + q22 * wx * wy;
       }
     }
 
     return resized;
   }
 
-  /// Apply sticker effects including mask and optional border
-  static Future<Uint8List> _applyStickerEffects(
+  /// Safe async sticker effects application with yield points
+  static Future<Uint8List> _applyStickerEffectsAsync(
     Uint8List pixels,
     List<double> mask,
     int width,
@@ -355,148 +481,212 @@ class OnnxStickerProcessor {
     required String borderColor,
     required double borderWidth,
   }) async {
-    final result = Uint8List(width * height * 4);
-    final borderColorRgb = _parseBorderColor(borderColor);
+    // Use memory pool for result buffer
+    final result = _MemoryPool.getBuffer(width * height * 4);
+    final borderColorRgb = _parseBorderColorOptimized(borderColor);
     final borderWidthInt = borderWidth.round();
 
-    // Apply smoothing to the mask for better edges
-    final smoothedMask = _smoothMask(mask, width, height, 3);
+    // Apply smoothing to the mask for better edges with yield points
+    final smoothedMask = await _smoothMaskAsync(mask, width, height, 3);
 
     // Create expanded mask for border if needed
     List<double>? expandedMask;
     if (addBorder && borderWidthInt > 0) {
-      expandedMask = _expandMask(smoothedMask, width, height, borderWidthInt);
+      expandedMask = await _expandMaskAsync(
+        smoothedMask,
+        width,
+        height,
+        borderWidthInt,
+      );
     }
 
     const threshold = 0.5;
+    const thresholdHigh = threshold + 0.05;
+    const thresholdLow = threshold - 0.05;
+    const thresholdRange = 0.1;
 
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        final pixelIndex = (y * width + x) * 4;
-        final maskValue = smoothedMask[y * width + x];
-        final expandedMaskValue = expandedMask?[y * width + x] ?? maskValue;
+    // Process in chunks to avoid blocking the main thread
+    const chunkSize = 10000; // Process 10k pixels at a time
+    final totalPixels = width * height;
 
-        int alpha;
+    for (int chunk = 0; chunk < totalPixels; chunk += chunkSize) {
+      final endChunk = math.min(chunk + chunkSize, totalPixels);
 
-        if (maskValue > threshold + 0.05) {
-          // Foreground pixel - keep original with smooth alpha
-          result[pixelIndex] = pixels[pixelIndex]; // R
-          result[pixelIndex + 1] = pixels[pixelIndex + 1]; // G
-          result[pixelIndex + 2] = pixels[pixelIndex + 2]; // B
-          alpha = 255;
-        } else if (maskValue < threshold - 0.05) {
+      // Process chunk
+      for (int i = chunk; i < endChunk; i++) {
+        final pixelIndex = i * 4;
+        final maskValue = smoothedMask[i];
+        final expandedMaskValue = expandedMask?[i] ?? maskValue;
+
+        if (maskValue > thresholdHigh) {
+          // Foreground pixel - direct copy
+          result[pixelIndex] = pixels[pixelIndex];
+          result[pixelIndex + 1] = pixels[pixelIndex + 1];
+          result[pixelIndex + 2] = pixels[pixelIndex + 2];
+          result[pixelIndex + 3] = 255;
+        } else if (maskValue < thresholdLow) {
           if (addBorder && expandedMaskValue > threshold) {
             // Border pixel
-            result[pixelIndex] = borderColorRgb[0]; // R
-            result[pixelIndex + 1] = borderColorRgb[1]; // G
-            result[pixelIndex + 2] = borderColorRgb[2]; // B
-            alpha = 255;
+            result[pixelIndex] = borderColorRgb[0];
+            result[pixelIndex + 1] = borderColorRgb[1];
+            result[pixelIndex + 2] = borderColorRgb[2];
+            result[pixelIndex + 3] = 255;
           } else {
-            // Background pixel - transparent
-            result[pixelIndex] = 0; // R
-            result[pixelIndex + 1] = 0; // G
-            result[pixelIndex + 2] = 0; // B
-            alpha = 0;
+            // Background pixel - transparent (already zeroed by pool)
+            result[pixelIndex + 3] = 0;
           }
         } else {
-          // Smooth transition in the boundary region
-          result[pixelIndex] = pixels[pixelIndex]; // R
-          result[pixelIndex + 1] = pixels[pixelIndex + 1]; // G
-          result[pixelIndex + 2] = pixels[pixelIndex + 2]; // B
-          alpha = ((maskValue - (threshold - 0.05)) / 0.1 * 255).round().clamp(
-            0,
-            255,
-          );
+          // Smooth transition - optimized alpha calculation
+          result[pixelIndex] = pixels[pixelIndex];
+          result[pixelIndex + 1] = pixels[pixelIndex + 1];
+          result[pixelIndex + 2] = pixels[pixelIndex + 2];
+          result[pixelIndex + 3] = ((maskValue - thresholdLow) /
+                  thresholdRange *
+                  255)
+              .round()
+              .clamp(0, 255);
         }
+      }
 
-        result[pixelIndex + 3] = alpha; // A
+      // Yield control back to the event loop periodically
+      if (chunk % (chunkSize * 5) == 0) {
+        await Future.delayed(Duration.zero);
       }
     }
 
     // Convert RGBA bytes back to PNG format
-    return _encodeToPng(result, width, height);
+    final pngBytes = await _encodeToPng(result, width, height);
+
+    // Return buffer to pool
+    _MemoryPool.returnBuffer(result);
+
+    return pngBytes;
   }
 
-  /// Helper method for mask smoothing using a box blur
-  static List<double> _smoothMask(
+  /// Async mask smoothing with yield points
+  static Future<List<double>> _smoothMaskAsync(
     List<double> mask,
     int width,
     int height,
     int kernelSize,
-  ) {
-    final smoothed = List<double>.filled(width * height, 0.0);
+  ) async {
+    if (kernelSize <= 1) return mask;
+
+    // Use separable blur for O(n) instead of O(n²) complexity
+    final temp = Float64List(width * height);
+    final smoothed = Float64List(width * height);
     final halfKernel = kernelSize ~/ 2;
 
+    // Horizontal pass with yield points
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        double sum = 0.0;
+        int count = 0;
+
+        for (int kx = -halfKernel; kx <= halfKernel; kx++) {
+          final nx = x + kx;
+          if (nx >= 0 && nx < width) {
+            sum += mask[y * width + nx];
+            count++;
+          }
+        }
+        temp[y * width + x] = sum / count;
+      }
+
+      // Yield every 50 rows
+      if (y % 50 == 0) {
+        await Future.delayed(Duration.zero);
+      }
+    }
+
+    // Vertical pass with yield points
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
         double sum = 0.0;
         int count = 0;
 
         for (int ky = -halfKernel; ky <= halfKernel; ky++) {
-          for (int kx = -halfKernel; kx <= halfKernel; kx++) {
-            final ny = y + ky;
-            final nx = x + kx;
-
-            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-              sum += mask[ny * width + nx];
-              count++;
-            }
+          final ny = y + ky;
+          if (ny >= 0 && ny < height) {
+            sum += temp[ny * width + x];
+            count++;
           }
         }
-
         smoothed[y * width + x] = sum / count;
+      }
+
+      // Yield every 50 rows
+      if (y % 50 == 0) {
+        await Future.delayed(Duration.zero);
       }
     }
 
     return smoothed;
   }
 
-  static List<int> _parseBorderColor(String colorString) {
-    String hex =
-        colorString.startsWith('#') ? colorString.substring(1) : colorString;
-    if (hex.length != 6) hex = 'FFFFFF'; // Default to white
-
-    try {
-      final value = int.parse(hex, radix: 16);
-      return [
-        (value >> 16) & 0xFF, // R
-        (value >> 8) & 0xFF, // G
-        value & 0xFF, // B
-      ];
-    } catch (e) {
-      return [255, 255, 255]; // Default to white
-    }
-  }
-
-  static List<double> _expandMask(
+  /// Async mask expansion with yield points
+  static Future<List<double>> _expandMaskAsync(
     List<double> mask,
     int width,
     int height,
     int borderWidth,
-  ) {
-    final expanded = List<double>.filled(width * height, 0.0);
+  ) async {
+    final expanded = Float64List(width * height);
+    final borderWidthSq = borderWidth * borderWidth;
 
+    // Use a more efficient flood-fill approach with yield points
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
         if (mask[y * width + x] > 0.5) {
-          // Expand around this pixel
-          for (int dy = -borderWidth; dy <= borderWidth; dy++) {
-            for (int dx = -borderWidth; dx <= borderWidth; dx++) {
-              final nx = x + dx;
-              final ny = y + dy;
-              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                final distance = math.sqrt(dx * dx + dy * dy);
-                if (distance <= borderWidth) {
-                  expanded[ny * width + nx] = 1.0;
-                }
+          final startY = math.max(0, y - borderWidth);
+          final endY = math.min(height - 1, y + borderWidth);
+          final startX = math.max(0, x - borderWidth);
+          final endX = math.min(width - 1, x + borderWidth);
+
+          for (int ny = startY; ny <= endY; ny++) {
+            for (int nx = startX; nx <= endX; nx++) {
+              final dx = nx - x;
+              final dy = ny - y;
+              final distanceSq = dx * dx + dy * dy;
+              if (distanceSq <= borderWidthSq) {
+                expanded[ny * width + nx] = 1.0;
               }
             }
           }
         }
       }
+
+      // Yield every 20 rows to prevent blocking
+      if (y % 20 == 0) {
+        await Future.delayed(Duration.zero);
+      }
     }
 
     return expanded;
+  }
+
+  /// Optimized border color parsing with caching
+  static final Map<String, List<int>> _colorCache = {};
+
+  static List<int> _parseBorderColorOptimized(String colorString) {
+    if (_colorCache.containsKey(colorString)) {
+      return _colorCache[colorString]!;
+    }
+
+    String hex =
+        colorString.startsWith('#') ? colorString.substring(1) : colorString;
+    if (hex.length != 6) hex = 'FFFFFF';
+
+    List<int> rgb;
+    try {
+      final value = int.parse(hex, radix: 16);
+      rgb = [(value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF];
+    } catch (e) {
+      rgb = [255, 255, 255];
+    }
+
+    _colorCache[colorString] = rgb;
+    return rgb;
   }
 
   static Future<Uint8List> _encodeToPng(
@@ -520,8 +710,26 @@ class OnnxStickerProcessor {
 
   /// Clean up resources
   static void dispose() {
-    _session?.release();
-    _session = null;
-    _isInitialized = false;
+    try {
+      _session?.release();
+      _session = null;
+      OrtEnv.instance.release();
+      _isInitialized = false;
+      _isInitializing = false;
+
+      // Clear caches and memory pools
+      _ProcessingCache.clear();
+      _MemoryPool.clear();
+      _floatBufferPool.clear();
+      _colorCache.clear();
+    } catch (e) {
+      // Log error but don't throw to prevent app crashes during disposal
+      if (kDebugMode) {
+        dev.log(
+          'Error disposing ONNX resources: $e',
+          name: "FlutterStickerMaker",
+        );
+      }
+    }
   }
 }

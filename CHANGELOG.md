@@ -1,3 +1,7 @@
+## 0.1.3
+* Enhanced background removal for Android and iOS using ONNX models.
+* Added resource management method.
+  
 ## 0.1.2
 * Background removal for Android and the iOS below iOS 17.0 using ONNX models.
 * Add compatibility for iOS 15.5+.

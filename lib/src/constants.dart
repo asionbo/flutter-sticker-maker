@@ -21,6 +21,9 @@ class StickerDefaults {
   /// Processing timeout in seconds
   static const int processingTimeoutSeconds = 30;
 
+  /// Whether to automatically dispose resources on app lifecycle changes
+  static const bool autoDisposeOnPause = true;
+
   /// Valid image format headers
   static const List<int> pngHeader = [0x89, 0x50, 0x4E, 0x47];
   static const List<int> jpegHeader = [0xFF, 0xD8, 0xFF];
