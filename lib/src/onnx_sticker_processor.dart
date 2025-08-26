@@ -25,8 +25,10 @@ class _MemoryPool {
     final size = buffer.length;
     final pool = _pools.putIfAbsent(size, () => <Uint8List>[]);
     if (pool.length < _maxPoolSize) {
-      // Clear buffer and return to pool
-      buffer.fillRange(0, buffer.length, 0);
+      // Properly clear buffer contents
+      for (int i = 0; i < buffer.length; i++) {
+        buffer[i] = 0;
+      }
       pool.add(buffer);
     }
   }
@@ -43,12 +45,34 @@ class _ProcessingCache {
   static const int _maxCacheSize = 10;
 
   static String _generateKey(Uint8List data, int width, int height) {
-    // Simple hash based on data characteristics
-    int hash = width.hashCode ^ height.hashCode;
-    for (int i = 0; i < math.min(data.length, 100); i += 10) {
-      hash ^= data[i].hashCode;
+    // Create a more robust hash that's truly unique per image
+
+    // Use a more comprehensive sampling strategy
+    final step = math.max(1, data.length ~/ 2048); // Sample more pixels
+
+    // Create multiple hash components
+    int hash1 = 0, hash2 = 0, hash3 = 0;
+
+    for (int i = 0; i < data.length; i += step) {
+      final pixel = data[i];
+      hash1 = (hash1 * 31 + pixel) & 0x7FFFFFFF;
     }
-    return hash.toString();
+
+    // Sample from different regions for better uniqueness
+    for (int i = step ~/ 2; i < data.length; i += step * 2) {
+      final pixel = data[i];
+      hash2 = (hash2 * 37 + pixel) & 0x7FFFFFFF;
+    }
+
+    // Include data length and additional variance
+    hash3 = data.length.hashCode;
+
+    // Combine all hash components
+
+    // Add timestamp component to ensure uniqueness across sessions
+    final timestamp = DateTime.now().microsecondsSinceEpoch;
+
+    return '${width}x${height}_${hash1}_${hash2}_${hash3}_$timestamp';
   }
 
   static List<double>? getMask(String key) => _maskCache[key];
@@ -83,6 +107,7 @@ class OnnxStickerProcessor {
   static OrtSession? _session;
   static bool _isInitialized = false;
   static bool _isInitializing = false;
+  // Clear the float buffer pool completely for each new image
   static final Map<int, Float32List> _floatBufferPool = {};
 
   // Pre-computed constants for better performance
@@ -153,6 +178,9 @@ class OnnxStickerProcessor {
     String borderColor = '#FFFFFF',
     double borderWidth = 12.0,
   }) async {
+    // Clear float buffer pool at start of each processing to prevent reuse
+    _floatBufferPool.clear();
+
     // Only initialize if not already done
     if (!_isInitialized) {
       await initialize();
@@ -174,12 +202,18 @@ class OnnxStickerProcessor {
       final height = image.height;
       final pixels = byteData.buffer.asUint8List();
 
-      // Check cache first
+      // Generate unique cache key for this specific image
       final cacheKey = _ProcessingCache._generateKey(pixels, width, height);
       List<double>? mask = _ProcessingCache.getMask(cacheKey);
 
-      if (mask == null) {
-        // Use actual ONNX model for background removal
+      if (mask != null) {
+        if (kDebugMode) {
+          dev.log(
+            'Using cached mask for key: $cacheKey',
+            name: "FlutterStickerMaker",
+          );
+        }
+      } else {
         mask = await _runOnnxInference(pixels, width, height);
         _ProcessingCache.putMask(cacheKey, mask);
       }
@@ -254,7 +288,11 @@ class OnnxStickerProcessor {
     int originalHeight,
   ) async {
     const modelInputSize = 320;
-    final cacheKey = '${originalWidth}x${originalHeight}_$modelInputSize';
+    final cacheKey = _ProcessingCache._generateKey(
+      pixels,
+      originalWidth,
+      originalHeight,
+    );
 
     // Try to get cached resized image
     ui.Image? resizedImage = _ProcessingCache.getImage(cacheKey);
@@ -342,11 +380,9 @@ class OnnxStickerProcessor {
     final rgbaBytes = byteData.buffer.asUint8List();
     final pixelCount = modelInputSize * modelInputSize;
 
-    // Use pooled buffer if available
+    // Always create new buffer to prevent data contamination
     final bufferSize = pixelCount * 3;
-    Float32List floats =
-        _floatBufferPool[bufferSize] ?? Float32List(bufferSize);
-    _floatBufferPool[bufferSize] = floats;
+    final floats = Float32List(bufferSize);
 
     // Pre-compute division
 

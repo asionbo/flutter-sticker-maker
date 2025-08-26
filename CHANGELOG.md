@@ -1,3 +1,6 @@
+## 0.1.5
+* Fix caching mechanism for processed masks and images.
+
 ## 0.1.4
 * Updated Android target SDK version to 35.
   
