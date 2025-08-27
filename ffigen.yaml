@@ -1,0 +1,39 @@
+name: 'NativeMaskProcessorBindings'
+description: 'Bindings for native mask processing library'
+output: 'lib/src/ffi_bindings_generated.dart'
+headers:
+  entry-points:
+    - 'src/native/mask_processor.h'
+    - 'src/native/simd_optimizations.h'
+  include-directives:
+    - 'src/native/mask_processor.h'
+    - 'src/native/simd_optimizations.h'
+
+preamble: |
+  // Generated FFI bindings for native mask processing
+  // ignore_for_file: always_specify_types
+  // ignore_for_file: camel_case_types
+  // ignore_for_file: non_constant_identifier_names
+
+comments:
+  style: any
+  length: full
+
+structs:
+  include:
+    - RGBColor
+  
+enums:
+  include:
+    - MaskProcessorResult
+
+functions:
+  include:
+    - apply_sticker_mask_native
+    - apply_sticker_mask_optimized
+    - smooth_mask_native
+    - smooth_mask_optimized
+    - expand_mask_native
+
+compiler-opts:
+  - '-Isrc/native'
