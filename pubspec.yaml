@@ -22,7 +22,9 @@ dependencies:
   flutter:
     sdk: flutter
   onnxruntime: ^1.4.1
+  ffi: ^2.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  ffigen: ^11.0.0
