@@ -1,3 +1,6 @@
+## 0.1.6
+* Improved performance for mask processing on iOS and Android.
+
 ## 0.1.5
 * Fix caching mechanism for processed masks and images.
 

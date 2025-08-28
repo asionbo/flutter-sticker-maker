@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_sticker_maker/src/constants.dart';
+import 'package:flutter_sticker_maker/src/native_mask_processor.dart';
 import 'package:onnxruntime/onnxruntime.dart';
 import 'dart:ui' as ui;
 import 'dart:developer' as dev;
@@ -122,6 +123,13 @@ class OnnxStickerProcessor {
     try {
       /// Initialize the ONNX runtime environment.
       await initializeOrt();
+      
+      /// Initialize native mask processor
+      final nativeAvailable = NativeMaskProcessor.initialize();
+      if (kDebugMode) {
+        dev.log('Native mask processor available: $nativeAvailable');
+      }
+      
       _isInitialized = true;
     } catch (e) {
       _isInitialized = false;
@@ -522,20 +530,75 @@ class OnnxStickerProcessor {
     final borderColorRgb = _parseBorderColorOptimized(borderColor);
     final borderWidthInt = borderWidth.round();
 
-    // Apply smoothing to the mask for better edges with yield points
-    final smoothedMask = await _smoothMaskAsync(mask, width, height, 3);
+    try {
+      // Apply smoothing to the mask for better edges
+      final smoothedMask = await _smoothMaskAsync(mask, width, height, 3);
 
-    // Create expanded mask for border if needed
-    List<double>? expandedMask;
-    if (addBorder && borderWidthInt > 0) {
-      expandedMask = await _expandMaskAsync(
-        smoothedMask,
-        width,
-        height,
-        borderWidthInt,
-      );
+      // Create expanded mask for border if needed
+      List<double>? expandedMask;
+      if (addBorder && borderWidthInt > 0) {
+        expandedMask = await _expandMaskAsync(
+          smoothedMask,
+          width,
+          height,
+          borderWidthInt,
+        );
+      }
+
+      // Copy pixels to result buffer first
+      result.setAll(0, pixels);
+
+      // Try native implementation first
+      if (NativeMaskProcessor.isAvailable) {
+        final nativeResult = NativeMaskProcessor.applyStickerMask(
+          result,
+          smoothedMask,
+          width,
+          height,
+          addBorder,
+          borderColorRgb,
+          borderWidthInt,
+          expandedMask,
+        );
+
+        if (nativeResult == MaskProcessorResult.success) {
+          if (kDebugMode) {
+            dev.log('Used native mask processing');
+          }
+        } else {
+          // Fall back to Dart implementation
+          if (kDebugMode) {
+            dev.log('Native mask processing failed, using Dart fallback');
+          }
+          await _applyStickerEffectsDart(result, pixels, smoothedMask, expandedMask, 
+                                       width, height, addBorder, borderColorRgb);
+        }
+      } else {
+        // Use Dart implementation
+        await _applyStickerEffectsDart(result, pixels, smoothedMask, expandedMask, 
+                                     width, height, addBorder, borderColorRgb);
+      }
+
+      // Convert RGBA bytes back to PNG format
+      final pngBytes = await _encodeToPng(result, width, height);
+      return pngBytes;
+    } finally {
+      // Return buffer to pool
+      _MemoryPool.returnBuffer(result);
     }
+  }
 
+  /// Dart fallback implementation for sticker effects
+  static Future<void> _applyStickerEffectsDart(
+    Uint8List result,
+    Uint8List pixels,
+    List<double> smoothedMask,
+    List<double>? expandedMask,
+    int width,
+    int height,
+    bool addBorder,
+    List<int> borderColorRgb,
+  ) async {
     const threshold = 0.5;
     const thresholdHigh = threshold + 0.05;
     const thresholdLow = threshold - 0.05;
@@ -589,14 +652,6 @@ class OnnxStickerProcessor {
         await Future.delayed(Duration.zero);
       }
     }
-
-    // Convert RGBA bytes back to PNG format
-    final pngBytes = await _encodeToPng(result, width, height);
-
-    // Return buffer to pool
-    _MemoryPool.returnBuffer(result);
-
-    return pngBytes;
   }
 
   /// Async mask smoothing with yield points
@@ -608,6 +663,41 @@ class OnnxStickerProcessor {
   ) async {
     if (kernelSize <= 1) return mask;
 
+    final smoothed = Float64List(width * height);
+
+    // Try native implementation first
+    if (NativeMaskProcessor.isAvailable) {
+      final nativeResult = NativeMaskProcessor.smoothMask(
+        mask,
+        smoothed,
+        width,
+        height,
+        kernelSize,
+      );
+
+      if (nativeResult == MaskProcessorResult.success) {
+        if (kDebugMode) {
+          dev.log('Used native mask smoothing');
+        }
+        return smoothed;
+      } else {
+        if (kDebugMode) {
+          dev.log('Native mask smoothing failed, using Dart fallback');
+        }
+      }
+    }
+
+    // Dart fallback implementation
+    return await _smoothMaskDart(mask, width, height, kernelSize);
+  }
+
+  /// Dart fallback implementation for mask smoothing
+  static Future<List<double>> _smoothMaskDart(
+    List<double> mask,
+    int width,
+    int height,
+    int kernelSize,
+  ) async {
     // Use separable blur for O(n) instead of O(n²) complexity
     final temp = Float64List(width * height);
     final smoothed = Float64List(width * height);
@@ -662,6 +752,41 @@ class OnnxStickerProcessor {
 
   /// Async mask expansion with yield points
   static Future<List<double>> _expandMaskAsync(
+    List<double> mask,
+    int width,
+    int height,
+    int borderWidth,
+  ) async {
+    final expanded = Float64List(width * height);
+
+    // Try native implementation first
+    if (NativeMaskProcessor.isAvailable) {
+      final nativeResult = NativeMaskProcessor.expandMask(
+        mask,
+        expanded,
+        width,
+        height,
+        borderWidth,
+      );
+
+      if (nativeResult == MaskProcessorResult.success) {
+        if (kDebugMode) {
+          dev.log('Used native mask expansion');
+        }
+        return expanded;
+      } else {
+        if (kDebugMode) {
+          dev.log('Native mask expansion failed, using Dart fallback');
+        }
+      }
+    }
+
+    // Dart fallback implementation
+    return await _expandMaskDart(mask, width, height, borderWidth);
+  }
+
+  /// Dart fallback implementation for mask expansion
+  static Future<List<double>> _expandMaskDart(
     List<double> mask,
     int width,
     int height,
