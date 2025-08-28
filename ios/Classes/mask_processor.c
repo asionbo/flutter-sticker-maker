@@ -152,32 +152,139 @@ MaskProcessorResult expand_mask_native(
         return MASK_PROCESSOR_ERROR_INVALID_PARAMS;
     }
 
+    // If border_width is 0, just copy the mask
+    if (border_width == 0) {
+        memcpy(output, mask, sizeof(double) * width * height);
+        return MASK_PROCESSOR_SUCCESS;
+    }
+
     // Initialize output to zero
     memset(output, 0, sizeof(double) * width * height);
 
-    const int border_width_sq = border_width * border_width;
+    // For small border widths, use optimized direct approach
+    if (border_width <= 3) {
+        // Pre-compute circular kernel offsets for small borders
+        int kernel_offsets[64]; // Maximum for border_width=3: (2*3+1)^2 = 49
+        int kernel_count = 0;
+        
+        for (int dy = -border_width; dy <= border_width; dy++) {
+            for (int dx = -border_width; dx <= border_width; dx++) {
+                if (dx * dx + dy * dy <= border_width * border_width) {
+                    kernel_offsets[kernel_count++] = dy * width + dx;
+                }
+            }
+        }
 
-    // Efficient distance-based expansion
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            if (mask[y * width + x] > THRESHOLD) {
-                const int start_y = clamp_int(y - border_width, 0, height - 1);
-                const int end_y = clamp_int(y + border_width, 0, height - 1);
-                const int start_x = clamp_int(x - border_width, 0, width - 1);
-                const int end_x = clamp_int(x + border_width, 0, width - 1);
-
-                for (int ny = start_y; ny <= end_y; ny++) {
-                    for (int nx = start_x; nx <= end_x; nx++) {
-                        const int dx = nx - x;
-                        const int dy = ny - y;
-                        const int distance_sq = dx * dx + dy * dy;
-                        if (distance_sq <= border_width_sq) {
-                            output[ny * width + nx] = 1.0;
+        // Apply kernel to each foreground pixel
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (mask[y * width + x] > THRESHOLD) {
+                    const int center_idx = y * width + x;
+                    
+                    for (int k = 0; k < kernel_count; k++) {
+                        const int target_idx = center_idx + kernel_offsets[k];
+                        const int target_y = target_idx / width;
+                        const int target_x = target_idx % width;
+                        
+                        // Bounds check
+                        if (target_y >= 0 && target_y < height && 
+                            target_x >= 0 && target_x < width) {
+                            output[target_idx] = 1.0;
                         }
                     }
                 }
             }
         }
+    } else {
+        // For larger border widths, use distance transform approach
+        // First pass: mark all foreground pixels
+        for (int i = 0; i < width * height; i++) {
+            if (mask[i] > THRESHOLD) {
+                output[i] = 1.0;
+            }
+        }
+
+        // Multi-pass dilation for better cache performance
+        double* temp_buffer = (double*)malloc(sizeof(double) * width * height);
+        if (!temp_buffer) {
+            return MASK_PROCESSOR_ERROR_MEMORY;
+        }
+
+        // Use iterative dilation approach - more cache friendly
+        for (int iter = 0; iter < border_width; iter++) {
+            memcpy(temp_buffer, output, sizeof(double) * width * height);
+            
+            for (int y = 1; y < height - 1; y++) {
+                for (int x = 1; x < width - 1; x++) {
+                    const int idx = y * width + x;
+                    if (temp_buffer[idx] == 0.0) {
+                        // Check 8-connected neighbors
+                        if (temp_buffer[idx - width - 1] > 0.0 ||  // Top-left
+                            temp_buffer[idx - width] > 0.0 ||      // Top
+                            temp_buffer[idx - width + 1] > 0.0 ||  // Top-right
+                            temp_buffer[idx - 1] > 0.0 ||          // Left
+                            temp_buffer[idx + 1] > 0.0 ||          // Right
+                            temp_buffer[idx + width - 1] > 0.0 ||  // Bottom-left
+                            temp_buffer[idx + width] > 0.0 ||      // Bottom
+                            temp_buffer[idx + width + 1] > 0.0) {  // Bottom-right
+                            output[idx] = 1.0;
+                        }
+                    }
+                }
+            }
+            
+            // Handle border pixels separately to avoid bounds checking in main loop
+            for (int x = 0; x < width; x++) {
+                // Top row (y = 0)
+                if (temp_buffer[x] == 0.0) {
+                    if ((x > 0 && temp_buffer[x - 1] > 0.0) ||
+                        (x < width - 1 && temp_buffer[x + 1] > 0.0) ||
+                        temp_buffer[width + x] > 0.0 ||
+                        (x > 0 && temp_buffer[width + x - 1] > 0.0) ||
+                        (x < width - 1 && temp_buffer[width + x + 1] > 0.0)) {
+                        output[x] = 1.0;
+                    }
+                }
+                // Bottom row
+                const int bottom_idx = (height - 1) * width + x;
+                if (temp_buffer[bottom_idx] == 0.0) {
+                    if ((x > 0 && temp_buffer[bottom_idx - 1] > 0.0) ||
+                        (x < width - 1 && temp_buffer[bottom_idx + 1] > 0.0) ||
+                        temp_buffer[bottom_idx - width] > 0.0 ||
+                        (x > 0 && temp_buffer[bottom_idx - width - 1] > 0.0) ||
+                        (x < width - 1 && temp_buffer[bottom_idx - width + 1] > 0.0)) {
+                        output[bottom_idx] = 1.0;
+                    }
+                }
+            }
+            
+            for (int y = 1; y < height - 1; y++) {
+                // Left column
+                const int left_idx = y * width;
+                if (temp_buffer[left_idx] == 0.0) {
+                    if (temp_buffer[left_idx - width] > 0.0 ||
+                        temp_buffer[left_idx - width + 1] > 0.0 ||
+                        temp_buffer[left_idx + 1] > 0.0 ||
+                        temp_buffer[left_idx + width] > 0.0 ||
+                        temp_buffer[left_idx + width + 1] > 0.0) {
+                        output[left_idx] = 1.0;
+                    }
+                }
+                // Right column
+                const int right_idx = y * width + width - 1;
+                if (temp_buffer[right_idx] == 0.0) {
+                    if (temp_buffer[right_idx - width - 1] > 0.0 ||
+                        temp_buffer[right_idx - width] > 0.0 ||
+                        temp_buffer[right_idx - 1] > 0.0 ||
+                        temp_buffer[right_idx + width - 1] > 0.0 ||
+                        temp_buffer[right_idx + width] > 0.0) {
+                        output[right_idx] = 1.0;
+                    }
+                }
+            }
+        }
+
+        free(temp_buffer);
     }
 
     return MASK_PROCESSOR_SUCCESS;

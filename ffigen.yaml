@@ -3,11 +3,15 @@ description: 'Bindings for native mask processing library'
 output: 'lib/src/ffi_bindings_generated.dart'
 headers:
   entry-points:
-    - 'src/native/mask_processor.h'
-    - 'src/native/simd_optimizations.h'
+    - 'android/src/cpp/mask_processor.h'
+    - 'android/src/cpp/simd_optimizations.h'
+    - 'ios/Classes/mask_processor.h'
+    - 'ios/Classes/simd_optimizations.h'
   include-directives:
-    - 'src/native/mask_processor.h'
-    - 'src/native/simd_optimizations.h'
+    - 'android/src/cpp/mask_processor.h'
+    - 'android/src/cpp/simd_optimizations.h'
+    - 'ios/Classes/mask_processor.h'
+    - 'ios/Classes/simd_optimizations.h'
 
 preamble: |
   // Generated FFI bindings for native mask processing
@@ -36,4 +40,5 @@ functions:
     - expand_mask_native
 
 compiler-opts:
-  - '-Isrc/native'
+  - '-Iandroid/src/cpp'
+  - '-Iios/Classes'
