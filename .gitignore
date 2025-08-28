@@ -45,6 +45,7 @@ android/.idea/
 android/app/build/
 android/build/
 android/local.properties
+android/.cxx/
 
 # Misc
 *.log

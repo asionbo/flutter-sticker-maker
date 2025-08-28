@@ -2,6 +2,10 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
+
 /// Bindings for native mask processing library
 final class RGBColor extends ffi.Struct {
   @ffi.Uint8()
@@ -21,59 +25,65 @@ class MaskProcessorResult {
 }
 
 /// Native function typedefs
-typedef ApplyStickerMaskNativeC = ffi.Int32 Function(
-  ffi.Pointer<ffi.Uint8> pixels,
-  ffi.Pointer<ffi.Double> mask,
-  ffi.Int32 width,
-  ffi.Int32 height,
-  ffi.Int32 addBorder,
-  RGBColor borderColor,
-  ffi.Int32 borderWidth,
-  ffi.Pointer<ffi.Double> expandedMask,
-);
+typedef ApplyStickerMaskNativeC =
+    ffi.Int32 Function(
+      ffi.Pointer<ffi.Uint8> pixels,
+      ffi.Pointer<ffi.Double> mask,
+      ffi.Int32 width,
+      ffi.Int32 height,
+      ffi.Int32 addBorder,
+      RGBColor borderColor,
+      ffi.Int32 borderWidth,
+      ffi.Pointer<ffi.Double> expandedMask,
+    );
 
-typedef ApplyStickerMaskNativeDart = int Function(
-  ffi.Pointer<ffi.Uint8> pixels,
-  ffi.Pointer<ffi.Double> mask,
-  int width,
-  int height,
-  int addBorder,
-  RGBColor borderColor,
-  int borderWidth,
-  ffi.Pointer<ffi.Double> expandedMask,
-);
+typedef ApplyStickerMaskNativeDart =
+    int Function(
+      ffi.Pointer<ffi.Uint8> pixels,
+      ffi.Pointer<ffi.Double> mask,
+      int width,
+      int height,
+      int addBorder,
+      RGBColor borderColor,
+      int borderWidth,
+      ffi.Pointer<ffi.Double> expandedMask,
+    );
 
-typedef SmoothMaskNativeC = ffi.Int32 Function(
-  ffi.Pointer<ffi.Double> mask,
-  ffi.Pointer<ffi.Double> output,
-  ffi.Int32 width,
-  ffi.Int32 height,
-  ffi.Int32 kernelSize,
-);
+typedef SmoothMaskNativeC =
+    ffi.Int32 Function(
+      ffi.Pointer<ffi.Double> mask,
+      ffi.Pointer<ffi.Double> output,
+      ffi.Int32 width,
+      ffi.Int32 height,
+      ffi.Int32 kernelSize,
+    );
 
-typedef SmoothMaskNativeDart = int Function(
-  ffi.Pointer<ffi.Double> mask,
-  ffi.Pointer<ffi.Double> output,
-  int width,
-  int height,
-  int kernelSize,
-);
+typedef SmoothMaskNativeDart =
+    int Function(
+      ffi.Pointer<ffi.Double> mask,
+      ffi.Pointer<ffi.Double> output,
+      int width,
+      int height,
+      int kernelSize,
+    );
 
-typedef ExpandMaskNativeC = ffi.Int32 Function(
-  ffi.Pointer<ffi.Double> mask,
-  ffi.Pointer<ffi.Double> output,
-  ffi.Int32 width,
-  ffi.Int32 height,
-  ffi.Int32 borderWidth,
-);
+typedef ExpandMaskNativeC =
+    ffi.Int32 Function(
+      ffi.Pointer<ffi.Double> mask,
+      ffi.Pointer<ffi.Double> output,
+      ffi.Int32 width,
+      ffi.Int32 height,
+      ffi.Int32 borderWidth,
+    );
 
-typedef ExpandMaskNativeDart = int Function(
-  ffi.Pointer<ffi.Double> mask,
-  ffi.Pointer<ffi.Double> output,
-  int width,
-  int height,
-  int borderWidth,
-);
+typedef ExpandMaskNativeDart =
+    int Function(
+      ffi.Pointer<ffi.Double> mask,
+      ffi.Pointer<ffi.Double> output,
+      int width,
+      int height,
+      int borderWidth,
+    );
 
 /// Native library loader
 class NativeMaskProcessor {
@@ -88,7 +98,7 @@ class NativeMaskProcessor {
   /// Initialize the native library
   static bool initialize() {
     if (_initialized) return _available;
-    
+
     try {
       if (Platform.isAndroid) {
         _lib = ffi.DynamicLibrary.open('libflutter_sticker_maker_native.so');
@@ -101,23 +111,32 @@ class NativeMaskProcessor {
       }
 
       // Load function pointers
-      _applyStickerMaskOptimized = _lib!
-          .lookup<ffi.NativeFunction<ApplyStickerMaskNativeC>>('apply_sticker_mask_optimized')
-          .asFunction<ApplyStickerMaskNativeDart>();
+      _applyStickerMaskOptimized =
+          _lib!
+              .lookup<ffi.NativeFunction<ApplyStickerMaskNativeC>>(
+                'apply_sticker_mask_optimized',
+              )
+              .asFunction<ApplyStickerMaskNativeDart>();
 
-      _smoothMaskOptimized = _lib!
-          .lookup<ffi.NativeFunction<SmoothMaskNativeC>>('smooth_mask_optimized')
-          .asFunction<SmoothMaskNativeDart>();
+      _smoothMaskOptimized =
+          _lib!
+              .lookup<ffi.NativeFunction<SmoothMaskNativeC>>(
+                'smooth_mask_optimized',
+              )
+              .asFunction<SmoothMaskNativeDart>();
 
-      _expandMaskNative = _lib!
-          .lookup<ffi.NativeFunction<ExpandMaskNativeC>>('expand_mask_native')
-          .asFunction<ExpandMaskNativeDart>();
+      _expandMaskNative =
+          _lib!
+              .lookup<ffi.NativeFunction<ExpandMaskNativeC>>(
+                'expand_mask_native',
+              )
+              .asFunction<ExpandMaskNativeDart>();
 
       _available = true;
     } catch (e) {
       _available = false;
     }
-    
+
     _initialized = true;
     return _available;
   }
@@ -140,28 +159,67 @@ class NativeMaskProcessor {
       return MaskProcessorResult.errorProcessing;
     }
 
-    // Allocate native memory
-    final pixelsPtr = ffi.malloc.allocate<ffi.Uint8>(pixels.length);
-    final maskPtr = ffi.malloc.allocate<ffi.Double>(mask.length);
-    final expandedMaskPtr = expandedMask != null 
-        ? ffi.malloc.allocate<ffi.Double>(expandedMask.length)
-        : ffi.nullptr;
+    // Validate input parameters
+    if (pixels.isEmpty || mask.isEmpty || width <= 0 || height <= 0) {
+      return MaskProcessorResult.errorInvalidParams;
+    }
+
+    // Validate array sizes
+    final expectedPixelCount = width * height * 4; // RGBA
+    final expectedMaskCount = width * height;
+
+    if (pixels.length != expectedPixelCount ||
+        mask.length != expectedMaskCount) {
+      return MaskProcessorResult.errorInvalidParams;
+    }
+
+    // Allocate native memory with proper size checks
+    ffi.Pointer<ffi.Uint8> pixelsPtr = ffi.nullptr;
+    ffi.Pointer<ffi.Double> maskPtr = ffi.nullptr;
+    ffi.Pointer<ffi.Double> expandedMaskPtr = ffi.nullptr;
+    ffi.Pointer<RGBColor> borderColor = ffi.nullptr;
 
     try {
-      // Copy data to native memory
-      final pixelsNative = pixelsPtr.asTypedList(pixels.length);
-      pixelsNative.setAll(0, pixels);
+      // Allocate memory
+      pixelsPtr = malloc.allocate<ffi.Uint8>(
+        pixels.length * ffi.sizeOf<ffi.Uint8>(),
+      );
+      maskPtr = malloc.allocate<ffi.Double>(
+        mask.length * ffi.sizeOf<ffi.Double>(),
+      );
 
-      final maskNative = maskPtr.asTypedList(mask.length);
-      maskNative.setAll(0, mask);
+      if (expandedMask != null && expandedMask.isNotEmpty) {
+        expandedMaskPtr = malloc.allocate<ffi.Double>(
+          expandedMask.length * ffi.sizeOf<ffi.Double>(),
+        );
+      }
 
-      if (expandedMask != null) {
-        final expandedMaskNative = expandedMaskPtr.asTypedList(expandedMask.length);
-        expandedMaskNative.setAll(0, expandedMask);
+      // Verify pointers are valid
+      if (pixelsPtr == ffi.nullptr || maskPtr == ffi.nullptr) {
+        return MaskProcessorResult.errorMemory;
+      }
+
+      // Copy data to native memory safely
+      for (int i = 0; i < pixels.length; i++) {
+        pixelsPtr[i] = pixels[i];
+      }
+
+      for (int i = 0; i < mask.length; i++) {
+        maskPtr[i] = mask[i];
+      }
+
+      if (expandedMask != null && expandedMaskPtr != ffi.nullptr) {
+        for (int i = 0; i < expandedMask.length; i++) {
+          expandedMaskPtr[i] = expandedMask[i];
+        }
       }
 
       // Create border color
-      final borderColor = ffi.malloc.allocate<RGBColor>(ffi.sizeOf<RGBColor>());
+      borderColor = malloc.allocate<RGBColor>(ffi.sizeOf<RGBColor>());
+      if (borderColor == ffi.nullptr) {
+        return MaskProcessorResult.errorMemory;
+      }
+
       borderColor.ref.r = borderColorRgb[0];
       borderColor.ref.g = borderColorRgb[1];
       borderColor.ref.b = borderColorRgb[2];
@@ -178,18 +236,32 @@ class NativeMaskProcessor {
         expandedMaskPtr,
       );
 
-      // Copy result back
+      // Copy result back safely
       if (result == MaskProcessorResult.success) {
-        pixels.setAll(0, pixelsNative);
+        for (int i = 0; i < pixels.length; i++) {
+          pixels[i] = pixelsPtr[i];
+        }
       }
 
-      ffi.malloc.free(borderColor);
       return result;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error in applyStickerMask: $e');
+      }
+      return MaskProcessorResult.errorProcessing;
     } finally {
-      ffi.malloc.free(pixelsPtr);
-      ffi.malloc.free(maskPtr);
+      // Clean up allocated memory
+      if (pixelsPtr != ffi.nullptr) {
+        malloc.free(pixelsPtr);
+      }
+      if (maskPtr != ffi.nullptr) {
+        malloc.free(maskPtr);
+      }
       if (expandedMaskPtr != ffi.nullptr) {
-        ffi.malloc.free(expandedMaskPtr);
+        malloc.free(expandedMaskPtr);
+      }
+      if (borderColor != ffi.nullptr) {
+        malloc.free(borderColor);
       }
     }
   }
@@ -206,13 +278,40 @@ class NativeMaskProcessor {
       return MaskProcessorResult.errorProcessing;
     }
 
-    final maskPtr = ffi.malloc.allocate<ffi.Double>(mask.length);
-    final outputPtr = ffi.malloc.allocate<ffi.Double>(output.length);
+    // Validate input parameters
+    if (mask.isEmpty || output.isEmpty || width <= 0 || height <= 0) {
+      return MaskProcessorResult.errorInvalidParams;
+    }
+
+    // Validate array sizes
+    final expectedSize = width * height;
+    if (mask.length != expectedSize || output.length != expectedSize) {
+      return MaskProcessorResult.errorInvalidParams;
+    }
+
+    ffi.Pointer<ffi.Double> maskPtr = ffi.nullptr;
+    ffi.Pointer<ffi.Double> outputPtr = ffi.nullptr;
 
     try {
-      final maskNative = maskPtr.asTypedList(mask.length);
-      maskNative.setAll(0, mask);
+      // Allocate memory with proper size calculation
+      maskPtr = malloc.allocate<ffi.Double>(
+        mask.length * ffi.sizeOf<ffi.Double>(),
+      );
+      outputPtr = malloc.allocate<ffi.Double>(
+        output.length * ffi.sizeOf<ffi.Double>(),
+      );
 
+      // Verify pointers are valid
+      if (maskPtr == ffi.nullptr || outputPtr == ffi.nullptr) {
+        return MaskProcessorResult.errorMemory;
+      }
+
+      // Copy data to native memory safely
+      for (int i = 0; i < mask.length; i++) {
+        maskPtr[i] = mask[i];
+      }
+
+      // Call native function
       final result = _smoothMaskOptimized!(
         maskPtr,
         outputPtr,
@@ -221,15 +320,27 @@ class NativeMaskProcessor {
         kernelSize,
       );
 
+      // Copy result back safely
       if (result == MaskProcessorResult.success) {
-        final outputNative = outputPtr.asTypedList(output.length);
-        output.setAll(0, outputNative);
+        for (int i = 0; i < output.length; i++) {
+          output[i] = outputPtr[i];
+        }
       }
 
       return result;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error in smoothMask: $e');
+      }
+      return MaskProcessorResult.errorProcessing;
     } finally {
-      ffi.malloc.free(maskPtr);
-      ffi.malloc.free(outputPtr);
+      // Clean up allocated memory
+      if (maskPtr != ffi.nullptr) {
+        malloc.free(maskPtr);
+      }
+      if (outputPtr != ffi.nullptr) {
+        malloc.free(outputPtr);
+      }
     }
   }
 
@@ -245,13 +356,40 @@ class NativeMaskProcessor {
       return MaskProcessorResult.errorProcessing;
     }
 
-    final maskPtr = ffi.malloc.allocate<ffi.Double>(mask.length);
-    final outputPtr = ffi.malloc.allocate<ffi.Double>(output.length);
+    // Validate input parameters
+    if (mask.isEmpty || output.isEmpty || width <= 0 || height <= 0) {
+      return MaskProcessorResult.errorInvalidParams;
+    }
+
+    // Validate array sizes
+    final expectedSize = width * height;
+    if (mask.length != expectedSize || output.length != expectedSize) {
+      return MaskProcessorResult.errorInvalidParams;
+    }
+
+    ffi.Pointer<ffi.Double> maskPtr = ffi.nullptr;
+    ffi.Pointer<ffi.Double> outputPtr = ffi.nullptr;
 
     try {
-      final maskNative = maskPtr.asTypedList(mask.length);
-      maskNative.setAll(0, mask);
+      // Allocate memory with proper size calculation
+      maskPtr = malloc.allocate<ffi.Double>(
+        mask.length * ffi.sizeOf<ffi.Double>(),
+      );
+      outputPtr = malloc.allocate<ffi.Double>(
+        output.length * ffi.sizeOf<ffi.Double>(),
+      );
 
+      // Verify pointers are valid
+      if (maskPtr == ffi.nullptr || outputPtr == ffi.nullptr) {
+        return MaskProcessorResult.errorMemory;
+      }
+
+      // Copy data to native memory safely
+      for (int i = 0; i < mask.length; i++) {
+        maskPtr[i] = mask[i];
+      }
+
+      // Call native function
       final result = _expandMaskNative!(
         maskPtr,
         outputPtr,
@@ -260,15 +398,27 @@ class NativeMaskProcessor {
         borderWidth,
       );
 
+      // Copy result back safely
       if (result == MaskProcessorResult.success) {
-        final outputNative = outputPtr.asTypedList(output.length);
-        output.setAll(0, outputNative);
+        for (int i = 0; i < output.length; i++) {
+          output[i] = outputPtr[i];
+        }
       }
 
       return result;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error in expandMask: $e');
+      }
+      return MaskProcessorResult.errorProcessing;
     } finally {
-      ffi.malloc.free(maskPtr);
-      ffi.malloc.free(outputPtr);
+      // Clean up allocated memory
+      if (maskPtr != ffi.nullptr) {
+        malloc.free(maskPtr);
+      }
+      if (outputPtr != ffi.nullptr) {
+        malloc.free(outputPtr);
+      }
     }
   }
 }
