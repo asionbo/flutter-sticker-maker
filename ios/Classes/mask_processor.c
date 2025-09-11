@@ -3,6 +3,13 @@
 #include <string.h>
 #include <stdlib.h>
 
+// Add header for aligned memory allocation
+#if defined(__ANDROID_API__) && __ANDROID_API__ >= 28
+#include <malloc.h>
+#elif defined(__APPLE__) || defined(__linux__)
+#include <stdlib.h>  // For posix_memalign
+#endif
+
 // Threshold constants matching Dart implementation
 #define THRESHOLD 0.5
 #define THRESHOLD_HIGH (THRESHOLD + 0.05)
@@ -95,8 +102,8 @@ MaskProcessorResult smooth_mask_native(
         return MASK_PROCESSOR_SUCCESS;
     }
 
-    // Allocate temporary buffer for separable blur
-    double* temp = (double*)malloc(sizeof(double) * width * height);
+    // Allocate temporary buffer for separable blur with 16KB alignment
+    double* temp = (double*)aligned_malloc(sizeof(double) * width * height);
     if (!temp) {
         return MASK_PROCESSOR_ERROR_MEMORY;
     }
@@ -137,7 +144,7 @@ MaskProcessorResult smooth_mask_native(
         }
     }
 
-    free(temp);
+    aligned_free(temp);
     return MASK_PROCESSOR_SUCCESS;
 }
 
@@ -204,8 +211,8 @@ MaskProcessorResult expand_mask_native(
             }
         }
 
-        // Multi-pass dilation for better cache performance
-        double* temp_buffer = (double*)malloc(sizeof(double) * width * height);
+        // Multi-pass dilation for better cache performance with 16KB alignment
+        double* temp_buffer = (double*)aligned_malloc(sizeof(double) * width * height);
         if (!temp_buffer) {
             return MASK_PROCESSOR_ERROR_MEMORY;
         }
@@ -284,7 +291,7 @@ MaskProcessorResult expand_mask_native(
             }
         }
 
-        free(temp_buffer);
+        aligned_free(temp_buffer);
     }
 
     return MASK_PROCESSOR_SUCCESS;

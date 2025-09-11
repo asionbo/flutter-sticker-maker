@@ -3,10 +3,14 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdlib.h>  // For malloc/free in aligned memory functions
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Memory alignment for 16KB page size support
+#define MEMORY_ALIGNMENT 16384  // 16KB alignment for modern page sizes
 
 // Return codes for native functions
 typedef enum {
@@ -82,6 +86,43 @@ MaskProcessorResult expand_mask_native(
     int height,
     int border_width
 );
+
+/**
+ * Aligned memory allocation utility for 16KB page size support
+ * 
+ * @param size Size to allocate in bytes
+ * @return Aligned pointer or NULL on failure
+ */
+static inline void* aligned_malloc(size_t size) {
+    // Ensure size is properly aligned to avoid issues
+    size_t aligned_size = (size + MEMORY_ALIGNMENT - 1) & ~(MEMORY_ALIGNMENT - 1);
+    
+#if defined(__ANDROID_API__) && __ANDROID_API__ >= 28
+    // Use aligned_alloc for Android API 28+
+    return aligned_alloc(MEMORY_ALIGNMENT, aligned_size);
+#elif defined(__APPLE__)
+    // Use posix_memalign for iOS/macOS
+    void* ptr = NULL;
+    if (posix_memalign(&ptr, MEMORY_ALIGNMENT, aligned_size) == 0) {
+        return ptr;
+    }
+    return NULL;
+#else
+    // Fallback to malloc for older systems
+    return malloc(size);
+#endif
+}
+
+/**
+ * Free aligned memory
+ * 
+ * @param ptr Pointer to free
+ */
+static inline void aligned_free(void* ptr) {
+    if (ptr) {
+        free(ptr);
+    }
+}
 
 #ifdef __cplusplus
 }
