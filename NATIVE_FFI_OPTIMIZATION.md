@@ -168,9 +168,11 @@ typedef enum {
 ```
 
 ### Memory Management
+- **16KB Memory Alignment**: All internal buffer allocations use 16KB aligned memory for optimal performance on modern systems with 16KB page sizes
 - Automatic memory allocation and deallocation in Dart bindings
-- Proper cleanup of native memory pointers
+- Proper cleanup of native memory pointers with aligned memory support
 - Prevention of memory leaks through RAII-style management
+- Platform-specific aligned allocation: `aligned_alloc()` on Android API 28+, `posix_memalign()` on iOS/macOS, fallback to `malloc()` for older systems
 
 ### Graceful Degradation
 - Native library load failures automatically fall back to Dart

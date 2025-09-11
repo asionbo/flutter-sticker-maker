@@ -48,4 +48,4 @@ android/local.properties
 android/.cxx/
 
 # Misc
-*.log
+*.log*.o
