@@ -30,7 +30,7 @@ android {
     compileSdk = 35
     
     defaultConfig {
-        minSdkVersion 21
+        minSdkVersion 24
         targetSdkVersion 35
 
         // 指定支持的CPU架构
@@ -42,6 +42,7 @@ android {
             cmake {
                 cppFlags "-std=c++17"
                 abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
         }
     }

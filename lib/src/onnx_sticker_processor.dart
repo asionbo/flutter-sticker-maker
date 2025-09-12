@@ -1,11 +1,9 @@
-import 'dart:typed_data';
 import 'dart:math' as math;
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:flutter_sticker_maker/src/constants.dart';
 import 'package:flutter_sticker_maker/src/native_mask_processor.dart';
-import 'package:onnxruntime/onnxruntime.dart';
 import 'dart:ui' as ui;
 import 'dart:developer' as dev;
 
@@ -123,13 +121,13 @@ class OnnxStickerProcessor {
     try {
       /// Initialize the ONNX runtime environment.
       await initializeOrt();
-      
+
       /// Initialize native mask processor
       final nativeAvailable = NativeMaskProcessor.initialize();
       if (kDebugMode) {
         dev.log('Native mask processor available: $nativeAvailable');
       }
-      
+
       _isInitialized = true;
     } catch (e) {
       _isInitialized = false;
@@ -141,9 +139,6 @@ class OnnxStickerProcessor {
 
   static Future<void> initializeOrt() async {
     try {
-      /// Initialize the ONNX runtime environment.
-      OrtEnv.instance.init();
-
       /// Create the ONNX session.
       await _createSession();
     } catch (e) {
@@ -155,17 +150,35 @@ class OnnxStickerProcessor {
   static Future<void> _createSession() async {
     try {
       /// Session configuration options.
-      final sessionOptions = OrtSessionOptions();
+      final ort = OnnxRuntime();
 
       /// Load the model as a raw asset.
-      final rawAssetFile = await rootBundle.load(StickerDefaults.onnxModelPath);
+      _session = await ort.createSessionFromAsset(
+        StickerDefaults.onnxModelPath,
+      );
 
-      /// Convert the asset to a byte array.
-      final bytes = rawAssetFile.buffer.asUint8List();
+      final modelMetadata = await _session!.getMetadata();
+      final List<Map<String, dynamic>> inputInfo =
+          await _session!.getInputInfo();
+      final List<Map<String, dynamic>> outputInfo =
+          await _session!.getOutputInfo();
 
-      /// Create the ONNX session.
-      _session = OrtSession.fromBuffer(bytes, sessionOptions);
-      sessionOptions.release();
+      // print model details for debugging
+      if (kDebugMode) {
+        dev.log(
+          'ONNX model metadata: ${modelMetadata.toMap()}',
+          name: "FlutterStickerMaker",
+        );
+        dev.log(
+          'ONNX model input info: $inputInfo',
+          name: "FlutterStickerMaker",
+        );
+        dev.log(
+          'ONNX model output info: $outputInfo',
+          name: "FlutterStickerMaker",
+        );
+      }
+
       if (kDebugMode) {
         dev.log(
           'ONNX session created successfully.',
@@ -263,8 +276,7 @@ class OnnxStickerProcessor {
 
       // Run inference with correct input name
       final inputs = {'input.1': inputTensor};
-      final runOptions = OrtRunOptions();
-      final outputs = await _session!.runAsync(runOptions, inputs);
+      final outputs = await _session!.run(inputs);
 
       // Extract mask from output
       final mask = await _postprocessOnnxOutputOptimized(
@@ -274,11 +286,7 @@ class OnnxStickerProcessor {
       );
 
       // Clean up tensors
-      inputTensor.release();
-      runOptions.release();
-      outputs?.forEach((output) {
-        output?.release();
-      });
+      inputTensor.dispose();
 
       return mask;
     } catch (e) {
@@ -290,7 +298,7 @@ class OnnxStickerProcessor {
   }
 
   /// Optimized preprocessing with memory pooling and efficient operations
-  static Future<OrtValueTensor> _preprocessImageForOnnxOptimized(
+  static Future<OrtValue> _preprocessImageForOnnxOptimized(
     Uint8List pixels,
     int originalWidth,
     int originalHeight,
@@ -335,12 +343,9 @@ class OnnxStickerProcessor {
 
     // Create tensor with shape [1, 3, 320, 320] (NCHW format)
     final inputShape = [1, 3, modelInputSize, modelInputSize];
-    final tensor = OrtValueTensor.createTensorWithDataList(
-      normalizedData,
-      inputShape,
-    );
+    OrtValue inputTensor = await OrtValue.fromList(normalizedData, inputShape);
 
-    return tensor;
+    return inputTensor;
   }
 
   /// Optimized image resizing using direct pixel manipulation
@@ -413,60 +418,170 @@ class OnnxStickerProcessor {
 
   /// Optimized postprocessing with efficient data handling
   static Future<List<double>> _postprocessOnnxOutputOptimized(
-    List<OrtValue?>? outputs,
+    Map<String, OrtValue> outputs,
     int targetWidth,
     int targetHeight,
   ) async {
-    if (outputs == null || outputs.isEmpty) {
+    if (outputs.isEmpty) {
       throw Exception('No output from ONNX model');
     }
 
-    final outputTensor = outputs[0]?.value;
-    if (outputTensor == null) {
-      throw Exception('Output tensor is null');
+    if (kDebugMode) {
+      dev.log(
+        'Number of outputs: ${outputs.length}',
+        name: "FlutterStickerMaker",
+      );
+      for (var entry in outputs.entries) {
+        dev.log(
+          'Output key: ${entry.key}, shape: ${entry.value.shape}',
+          name: "FlutterStickerMaker",
+        );
+      }
     }
 
-    // More efficient data extraction
-    final flatMask = <double>[];
-    _extractMaskDataOptimized(outputTensor, flatMask);
+    // For segmentation models, use the last output tensor which typically contains the final segmentation mask
+    final outputKeys = outputs.keys.toList()..sort();
+    final outputTensor = outputs[outputKeys.last]!;
 
-    final modelOutputSize = math.sqrt(flatMask.length).round();
+    if (kDebugMode) {
+      dev.log(
+        'Using output tensor: ${outputKeys.last} with shape: ${outputTensor.shape}',
+        name: "FlutterStickerMaker",
+      );
+    }
 
-    // Use optimized resize with pre-allocated buffer
-    return _resizeMaskBilinearOptimized(
-      flatMask,
-      modelOutputSize,
-      modelOutputSize,
-      targetWidth,
-      targetHeight,
-    );
-  }
+    try {
+      // Get the actual tensor data, not just the shape
+      final tensorData = await outputTensor.asList();
 
-  /// Optimized mask data extraction
-  static void _extractMaskDataOptimized(
-    dynamic outputTensor,
-    List<double> flatMask,
-  ) {
-    if (outputTensor is List && outputTensor.isNotEmpty) {
-      dynamic maskData;
-      if (outputTensor[0] is List && outputTensor[0][0] is List) {
-        maskData = outputTensor[0][0];
-      } else if (outputTensor[0] is List) {
-        maskData = outputTensor[0];
-      } else {
-        throw Exception('Unexpected output tensor format');
+      if (kDebugMode) {
+        dev.log(
+          'Tensor data type: ${tensorData.runtimeType}',
+          name: "FlutterStickerMaker",
+        );
       }
 
-      // Direct conversion without nested loops where possible
-      for (var row in maskData) {
-        if (row is List) {
-          flatMask.addAll(row.map<double>((e) => e.toDouble()));
-        } else {
-          flatMask.add(row.toDouble());
+      // Handle different possible tensor formats
+      List<double> flatMask = [];
+
+      await _extractMaskDataFromTensor(tensorData, flatMask);
+
+      if (flatMask.isEmpty) {
+        throw Exception('No mask data extracted from output tensor');
+      }
+
+      if (kDebugMode) {
+        dev.log(
+          'Extracted ${flatMask.length} mask values',
+          name: "FlutterStickerMaker",
+        );
+        // Log some sample values
+        final sampleSize = math.min(10, flatMask.length);
+        final sampleValues = flatMask.take(sampleSize).toList();
+        dev.log(
+          'Sample mask values: $sampleValues',
+          name: "FlutterStickerMaker",
+        );
+
+        // Log min/max values for debugging
+        final minVal = flatMask.reduce(math.min);
+        final maxVal = flatMask.reduce(math.max);
+        dev.log(
+          'Mask value range: [$minVal, $maxVal]',
+          name: "FlutterStickerMaker",
+        );
+      }
+
+      // Determine output dimensions - should be 320x320 based on model output
+      final expectedSize = 320 * 320;
+      if (flatMask.length != expectedSize) {
+        if (kDebugMode) {
+          dev.log(
+            'Warning: Expected $expectedSize mask values, got ${flatMask.length}',
+            name: "FlutterStickerMaker",
+          );
         }
       }
+
+      final modelOutputSize =
+          320; // Based on model output shape [1, 1, 320, 320]
+
+      // Apply sigmoid activation if values are not in [0,1] range
+      final minVal = flatMask.reduce(math.min);
+      final maxVal = flatMask.reduce(math.max);
+
+      if (minVal < -1.0 || maxVal > 2.0) {
+        // Apply sigmoid to convert logits to probabilities
+        for (int i = 0; i < flatMask.length; i++) {
+          flatMask[i] = 1.0 / (1.0 + math.exp(-flatMask[i]));
+        }
+
+        if (kDebugMode) {
+          dev.log(
+            'Applied sigmoid activation to mask values',
+            name: "FlutterStickerMaker",
+          );
+        }
+      }
+
+      // Use optimized resize with pre-allocated buffer
+      return _resizeMaskBilinearOptimized(
+        flatMask,
+        modelOutputSize,
+        modelOutputSize,
+        targetWidth,
+        targetHeight,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        dev.log('Error in postprocessing: $e', name: "FlutterStickerMaker");
+      }
+      throw Exception('Failed to postprocess ONNX output: $e');
+    }
+  }
+
+  /// Extract mask data from tensor with proper handling of nested structures
+  static Future<void> _extractMaskDataFromTensor(
+    dynamic data,
+    List<double> flatMask,
+  ) async {
+    if (data is List) {
+      for (var element in data) {
+        if (element is List) {
+          // Recursively handle nested lists
+          await _extractMaskDataFromTensor(element, flatMask);
+        } else if (element is num) {
+          // Convert number to double
+          flatMask.add(element.toDouble());
+        } else if (element is Float32List) {
+          // Handle Float32List directly
+          for (var value in element) {
+            flatMask.add(value.toDouble());
+          }
+        } else {
+          if (kDebugMode) {
+            dev.log(
+              'Unexpected element type in tensor: ${element.runtimeType}',
+              name: "FlutterStickerMaker",
+            );
+          }
+        }
+      }
+    } else if (data is Float32List) {
+      // Handle Float32List directly
+      for (var value in data) {
+        flatMask.add(value.toDouble());
+      }
+    } else if (data is num) {
+      flatMask.add(data.toDouble());
     } else {
-      throw Exception('Invalid output tensor structure');
+      if (kDebugMode) {
+        dev.log(
+          'Unexpected data type in tensor: ${data.runtimeType}',
+          name: "FlutterStickerMaker",
+        );
+      }
+      throw Exception('Unexpected data type in tensor: ${data.runtimeType}');
     }
   }
 
@@ -570,13 +685,29 @@ class OnnxStickerProcessor {
           if (kDebugMode) {
             dev.log('Native mask processing failed, using Dart fallback');
           }
-          await _applyStickerEffectsDart(result, pixels, smoothedMask, expandedMask, 
-                                       width, height, addBorder, borderColorRgb);
+          await _applyStickerEffectsDart(
+            result,
+            pixels,
+            smoothedMask,
+            expandedMask,
+            width,
+            height,
+            addBorder,
+            borderColorRgb,
+          );
         }
       } else {
         // Use Dart implementation
-        await _applyStickerEffectsDart(result, pixels, smoothedMask, expandedMask, 
-                                     width, height, addBorder, borderColorRgb);
+        await _applyStickerEffectsDart(
+          result,
+          pixels,
+          smoothedMask,
+          expandedMask,
+          width,
+          height,
+          addBorder,
+          borderColorRgb,
+        );
       }
 
       // Convert RGBA bytes back to PNG format
@@ -872,9 +1003,8 @@ class OnnxStickerProcessor {
   /// Clean up resources
   static void dispose() {
     try {
-      _session?.release();
+      _session?.close();
       _session = null;
-      OrtEnv.instance.release();
       _isInitialized = false;
       _isInitializing = false;
 

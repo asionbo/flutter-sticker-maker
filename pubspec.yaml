@@ -21,7 +21,7 @@ flutter:
 dependencies:
   flutter:
     sdk: flutter
-  onnxruntime: ^1.4.1
+  flutter_onnxruntime: ^1.5.2
   ffi: ^2.1.0
 
 dev_dependencies:
