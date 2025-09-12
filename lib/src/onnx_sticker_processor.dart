@@ -276,7 +276,9 @@ class OnnxStickerProcessor {
 
       // Run inference with correct input name
       final inputs = {'input.1': inputTensor};
-      final outputs = await _session!.run(inputs);
+      final mapOutputs = await _session!.run(inputs);
+
+      final outputs = mapOutputs.values.toList();
 
       // Extract mask from output
       final mask = await _postprocessOnnxOutputOptimized(
@@ -416,9 +418,8 @@ class OnnxStickerProcessor {
     return floats;
   }
 
-  /// Optimized postprocessing with efficient data handling
   static Future<List<double>> _postprocessOnnxOutputOptimized(
-    Map<String, OrtValue> outputs,
+    List<OrtValue> outputs,
     int targetWidth,
     int targetHeight,
   ) async {
@@ -426,162 +427,49 @@ class OnnxStickerProcessor {
       throw Exception('No output from ONNX model');
     }
 
-    if (kDebugMode) {
-      dev.log(
-        'Number of outputs: ${outputs.length}',
-        name: "FlutterStickerMaker",
-      );
-      for (var entry in outputs.entries) {
-        dev.log(
-          'Output key: ${entry.key}, shape: ${entry.value.shape}',
-          name: "FlutterStickerMaker",
-        );
-      }
-    }
+    final outputTensor = await outputs.last.asList();
 
-    // For segmentation models, use the last output tensor which typically contains the final segmentation mask
-    final outputKeys = outputs.keys.toList()..sort();
-    final outputTensor = outputs[outputKeys.last]!;
+    // More efficient data extraction
+    final flatMask = <double>[];
+    _extractMaskDataOptimized(outputTensor, flatMask);
 
-    if (kDebugMode) {
-      dev.log(
-        'Using output tensor: ${outputKeys.last} with shape: ${outputTensor.shape}',
-        name: "FlutterStickerMaker",
-      );
-    }
+    final modelOutputSize = math.sqrt(flatMask.length).round();
 
-    try {
-      // Get the actual tensor data, not just the shape
-      final tensorData = await outputTensor.asList();
-
-      if (kDebugMode) {
-        dev.log(
-          'Tensor data type: ${tensorData.runtimeType}',
-          name: "FlutterStickerMaker",
-        );
-      }
-
-      // Handle different possible tensor formats
-      List<double> flatMask = [];
-
-      await _extractMaskDataFromTensor(tensorData, flatMask);
-
-      if (flatMask.isEmpty) {
-        throw Exception('No mask data extracted from output tensor');
-      }
-
-      if (kDebugMode) {
-        dev.log(
-          'Extracted ${flatMask.length} mask values',
-          name: "FlutterStickerMaker",
-        );
-        // Log some sample values
-        final sampleSize = math.min(10, flatMask.length);
-        final sampleValues = flatMask.take(sampleSize).toList();
-        dev.log(
-          'Sample mask values: $sampleValues',
-          name: "FlutterStickerMaker",
-        );
-
-        // Log min/max values for debugging
-        final minVal = flatMask.reduce(math.min);
-        final maxVal = flatMask.reduce(math.max);
-        dev.log(
-          'Mask value range: [$minVal, $maxVal]',
-          name: "FlutterStickerMaker",
-        );
-      }
-
-      // Determine output dimensions - should be 320x320 based on model output
-      final expectedSize = 320 * 320;
-      if (flatMask.length != expectedSize) {
-        if (kDebugMode) {
-          dev.log(
-            'Warning: Expected $expectedSize mask values, got ${flatMask.length}',
-            name: "FlutterStickerMaker",
-          );
-        }
-      }
-
-      final modelOutputSize =
-          320; // Based on model output shape [1, 1, 320, 320]
-
-      // Apply sigmoid activation if values are not in [0,1] range
-      final minVal = flatMask.reduce(math.min);
-      final maxVal = flatMask.reduce(math.max);
-
-      if (minVal < -1.0 || maxVal > 2.0) {
-        // Apply sigmoid to convert logits to probabilities
-        for (int i = 0; i < flatMask.length; i++) {
-          flatMask[i] = 1.0 / (1.0 + math.exp(-flatMask[i]));
-        }
-
-        if (kDebugMode) {
-          dev.log(
-            'Applied sigmoid activation to mask values',
-            name: "FlutterStickerMaker",
-          );
-        }
-      }
-
-      // Use optimized resize with pre-allocated buffer
-      return _resizeMaskBilinearOptimized(
-        flatMask,
-        modelOutputSize,
-        modelOutputSize,
-        targetWidth,
-        targetHeight,
-      );
-    } catch (e) {
-      if (kDebugMode) {
-        dev.log('Error in postprocessing: $e', name: "FlutterStickerMaker");
-      }
-      throw Exception('Failed to postprocess ONNX output: $e');
-    }
+    // Use optimized resize with pre-allocated buffer
+    return _resizeMaskBilinearOptimized(
+      flatMask,
+      modelOutputSize,
+      modelOutputSize,
+      targetWidth,
+      targetHeight,
+    );
   }
 
-  /// Extract mask data from tensor with proper handling of nested structures
-  static Future<void> _extractMaskDataFromTensor(
-    dynamic data,
+  /// Optimized mask data extraction
+  static void _extractMaskDataOptimized(
+    dynamic outputTensor,
     List<double> flatMask,
-  ) async {
-    if (data is List) {
-      for (var element in data) {
-        if (element is List) {
-          // Recursively handle nested lists
-          await _extractMaskDataFromTensor(element, flatMask);
-        } else if (element is num) {
-          // Convert number to double
-          flatMask.add(element.toDouble());
-        } else if (element is Float32List) {
-          // Handle Float32List directly
-          for (var value in element) {
-            flatMask.add(value.toDouble());
-          }
+  ) {
+    if (outputTensor is List && outputTensor.isNotEmpty) {
+      dynamic maskData;
+      if (outputTensor[0] is List && outputTensor[0][0] is List) {
+        maskData = outputTensor[0][0];
+      } else if (outputTensor[0] is List) {
+        maskData = outputTensor[0];
+      } else {
+        throw Exception('Unexpected output tensor format');
+      }
+
+      // Direct conversion without nested loops where possible
+      for (var row in maskData) {
+        if (row is List) {
+          flatMask.addAll(row.map<double>((e) => e.toDouble()));
         } else {
-          if (kDebugMode) {
-            dev.log(
-              'Unexpected element type in tensor: ${element.runtimeType}',
-              name: "FlutterStickerMaker",
-            );
-          }
+          flatMask.add(row.toDouble());
         }
       }
-    } else if (data is Float32List) {
-      // Handle Float32List directly
-      for (var value in data) {
-        flatMask.add(value.toDouble());
-      }
-    } else if (data is num) {
-      flatMask.add(data.toDouble());
     } else {
-      if (kDebugMode) {
-        dev.log(
-          'Unexpected data type in tensor: ${data.runtimeType}',
-          name: "FlutterStickerMaker",
-        );
-      }
-      throw Exception('Unexpected data type in tensor: ${data.runtimeType}');
+      throw Exception('Invalid output tensor structure');
     }
   }
 
