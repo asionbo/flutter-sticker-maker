@@ -71,8 +71,8 @@ See `example/` for a full demo app.
 
 ## Setup
 
-- iOS: Minimum iOS 15.5
-- Android: Minimum SDK 21
+- iOS: Minimum iOS 16.0
+- Android: Minimum SDK 24
 
 ### Permissions
 

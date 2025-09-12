@@ -1,3 +1,7 @@
+## 0.1.7
+* Minimal iOS version raised to 16.0. Minimal Android SDK raised to 24.
+* Support 16 KB page sizes for Android X64 devices.
+
 ## 0.1.6
 * Improved performance for mask processing on iOS and Android.
 
