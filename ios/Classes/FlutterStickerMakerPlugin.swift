@@ -147,8 +147,10 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     }
 
     // Step 3: Apply mask and optional border
+    // Apply orientation transform to CIImage to match original orientation
     let ciImage = CIImage(image: preprocessedImage) ?? CIImage()
-    let maskedImage = try applyMask(maskImage, to: ciImage)
+      let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(preprocessedImage.imageOrientation.exifOrientation))
+    let maskedImage = try applyMask(maskImage, to: orientedCIImage)
 
     let finalImage =
       parameters.addBorder
@@ -156,8 +158,16 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
         to: maskedImage, mask: maskImage, color: parameters.borderColor,
         width: parameters.borderWidth) : maskedImage
 
-    // Step 4: Render final image
-    return try renderImage(finalImage)
+    // Step 4: Render final image with original scale
+    return try renderImage(finalImage, originalImage: parameters.image)
+  }
+
+  private func renderImage(_ ciImage: CIImage, originalImage: UIImage) throws -> UIImage {
+    let context = CIContext(options: [.useSoftwareRenderer: false])
+    guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+      throw StickerMakerError.imageRenderingFailed
+    }
+    return UIImage(cgImage: cgImage, scale: 1.0, orientation: originalImage.imageOrientation)
   }
 
   private func applyMask(_ maskImage: CIImage, to inputImage: CIImage) throws -> CIImage {
@@ -172,12 +182,12 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     return result
   }
 
-  private func renderImage(_ ciImage: CIImage) throws -> UIImage {
+    private func renderImage(_ ciImage: CIImage, originalOrientation: UIImage.Orientation) throws -> UIImage {
     let context = CIContext(options: [.useSoftwareRenderer: false])
     guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
       throw StickerMakerError.imageRenderingFailed
     }
-    return UIImage(cgImage: cgImage)
+        return UIImage(cgImage: cgImage,scale: 1.0 , orientation: originalOrientation)
   }
 }
 
@@ -218,7 +228,7 @@ private class ImageProcessor {
       throw StickerMakerError.imagePreprocessingFailed
     }
 
-    return UIImage(cgImage: processedCGImage)
+      return UIImage(cgImage: processedCGImage, scale: image.scale, orientation: image.imageOrientation)
   }
 }
 
@@ -257,7 +267,12 @@ private class MaskGenerator {
     }
 
     let maskCIImage = CIImage(cvPixelBuffer: maskPixelBuffer)
-    return smoothMaskEdges(maskCIImage)
+    let smoothedMask = smoothMaskEdges(maskCIImage)
+          
+    // Apply the same orientation transform to the mask as the original image
+    let orientedMask = smoothedMask.oriented(forExifOrientation: Int32(image.imageOrientation.exifOrientation))
+          
+    return orientedMask
   }
 
   private func smoothMaskEdges(_ maskImage: CIImage) -> CIImage {
@@ -320,5 +335,22 @@ private class ColorParser {
     let blue = CGFloat(hexValue & 0x0000FF) / 255.0
 
     return CIColor(red: red, green: green, blue: blue)
+  }
+}
+
+// Add this extension at the end of the file
+extension UIImage.Orientation {
+  var exifOrientation: Int {
+    switch self {
+    case .up: return 1
+    case .down: return 3
+    case .left: return 8
+    case .right: return 6
+    case .upMirrored: return 2
+    case .downMirrored: return 4
+    case .leftMirrored: return 5
+    case .rightMirrored: return 7
+    @unknown default: return 1
+    }
   }
 }

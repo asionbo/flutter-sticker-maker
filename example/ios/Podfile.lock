@@ -1,25 +1,29 @@
 PODS:
   - Flutter (1.0.0)
+  - flutter_onnxruntime (0.0.1):
+    - Flutter
+    - onnxruntime-objc (= 1.22.0)
   - flutter_sticker_maker (0.1.0):
     - Flutter
   - image_picker_ios (0.0.1):
     - Flutter
-  - onnxruntime (0.0.1):
+  - onnxruntime-c (1.22.0)
+  - onnxruntime-objc (1.22.0):
+    - onnxruntime-objc/Core (= 1.22.0)
+  - onnxruntime-objc/Core (1.22.0):
+    - onnxruntime-c (= 1.22.0)
+  - path_provider_foundation (0.0.1):
     - Flutter
-    - onnxruntime-objc (= 1.15.1)
-  - onnxruntime-c (1.15.1)
-  - onnxruntime-objc (1.15.1):
-    - onnxruntime-objc/Core (= 1.15.1)
-  - onnxruntime-objc/Core (1.15.1):
-    - onnxruntime-c (= 1.15.1)
+    - FlutterMacOS
   - permission_handler_apple (9.3.0):
     - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
+  - flutter_onnxruntime (from `.symlinks/plugins/flutter_onnxruntime/ios`)
   - flutter_sticker_maker (from `.symlinks/plugins/flutter_sticker_maker/ios`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
-  - onnxruntime (from `.symlinks/plugins/onnxruntime/ios`)
+  - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
 
 SPEC REPOS:
@@ -30,24 +34,27 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
+  flutter_onnxruntime:
+    :path: ".symlinks/plugins/flutter_onnxruntime/ios"
   flutter_sticker_maker:
     :path: ".symlinks/plugins/flutter_sticker_maker/ios"
   image_picker_ios:
     :path: ".symlinks/plugins/image_picker_ios/ios"
-  onnxruntime:
-    :path: ".symlinks/plugins/onnxruntime/ios"
+  path_provider_foundation:
+    :path: ".symlinks/plugins/path_provider_foundation/darwin"
   permission_handler_apple:
     :path: ".symlinks/plugins/permission_handler_apple/ios"
 
 SPEC CHECKSUMS:
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
-  flutter_sticker_maker: a3f95c43379320c4af0969fa73493cf78157427f
+  flutter_onnxruntime: 588dcdd569f6ac3e8e943d4340b4b161db0d4fe8
+  flutter_sticker_maker: 0c6f85f631000ccbefa4dd4ebc201f8f658ddf54
   image_picker_ios: c560581cceedb403a6ff17f2f816d7fea1421fc1
-  onnxruntime: e9346181d75b8dea8733bdae512a22c298962e00
-  onnxruntime-c: ebdcfd8650bcbd10121c125262f99dea681b92a3
-  onnxruntime-objc: ae7acec7a3d03eaf072d340afed7a35635c1c2a6
+  onnxruntime-c: 7f778680e96145956c0a31945f260321eed2611a
+  onnxruntime-objc: 83d28b87525bd971259a66e153ea32b5d023de19
+  path_provider_foundation: 2b6b4c569c0fb62ec74538f866245ac84301af46
   permission_handler_apple: 9878588469a2b0d0fc1e048d9f43605f92e6cec2
 
-PODFILE CHECKSUM: 725a97157c101615867d764602214f1d11f64d85
+PODFILE CHECKSUM: 440a648f1f19688ae2d3b536e5c3e1a7fc0cc651
 
 COCOAPODS: 1.16.2

@@ -13,7 +13,7 @@ Flutter plugin to create stickers from images using iOS Vision/CoreImage and And
   s.source_files = 'Classes/**/*'
   s.public_header_files = 'Classes/mask_processor.h', 'Classes/simd_optimizations.h'
   s.dependency 'Flutter'
-  s.platform = :ios, '15.5' # Updated to support iOS 15.5+ with ONNX for pre-17.0 versions
+  s.platform = :ios, '16.0' # Updated to support iOS 16.0+ with ONNX for pre-17.0 versions
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 
@@ -25,4 +25,6 @@ Flutter plugin to create stickers from images using iOS Vision/CoreImage and And
   
   # Add Accelerate framework for performance optimizations
   s.frameworks = 'Accelerate'
+
+  s.static_framework = true 
 end
