@@ -60,6 +60,42 @@ final stickerWithBorder = await FlutterStickerMaker.makeSticker(
 - `borderColor`: Hex color string for the border (default: '#FFFFFF')
 - `borderWidth`: Width of the border in pixels (default: 12.0)
 
+### Lift Animation Widget
+
+The plugin now includes an iOS-style lift animation widget that provides visual feedback on long press, similar to the iOS Photos app:
+
+```dart
+import 'package:flutter_sticker_maker/flutter_sticker_maker.dart';
+
+// Wrap any widget with lift animation
+LiftAnimationWidget(
+  onLongPress: () {
+    print('Long press detected!');
+  },
+  child: Image.memory(imageBytes),
+)
+
+// With custom parameters
+LiftAnimationWidget(
+  liftScale: 1.1,              // Scale factor when lifted (default: 1.05)
+  liftElevation: 12.0,         // Elevation/shadow when lifted (default: 8.0)
+  animationDuration: Duration(milliseconds: 250),
+  onLongPress: () {
+    // Handle long press
+  },
+  onLongPressEnd: () {
+    // Handle long press end
+  },
+  child: YourWidget(),
+)
+```
+
+The `LiftAnimationWidget` provides:
+- Smooth scale animation with spring-like curve
+- Elevation/shadow effect for depth perception
+- Customizable animation parameters
+- Callbacks for long press start and end events
+
 ## Examples
 
 ### Demo App Screenshots

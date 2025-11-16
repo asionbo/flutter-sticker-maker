@@ -1,3 +1,8 @@
+## 0.1.8
+* Added iOS-style lift animation widget (`LiftAnimationWidget`) for long-press interactions.
+* Provides visual feedback with scale and elevation animations similar to iOS Photos app.
+* Integrated lift animation in example app for improved user experience.
+
 ## 0.1.7
 * Minimal iOS version raised to 16.0. Minimal Android SDK raised to 24.
 * Support 16 KB page sizes for Android X64 devices.
