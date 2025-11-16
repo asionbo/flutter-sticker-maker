@@ -51,6 +51,12 @@ final stickerWithBorder = await FlutterStickerMaker.makeSticker(
   borderColor: '#FF0000', // Red border
   borderWidth: 15.0,      // 15 pixel border width
 );
+
+// With visual effect (iOS 18+ only)
+final stickerWithEffect = await FlutterStickerMaker.makeSticker(
+  imageBytes,
+  showVisualEffect: true, // Shows animated preview overlay
+);
 ```
 
 ### Parameters
@@ -59,6 +65,17 @@ final stickerWithBorder = await FlutterStickerMaker.makeSticker(
 - `addBorder`: Whether to add a border around the sticker (default: true)
 - `borderColor`: Hex color string for the border (default: '#FFFFFF')
 - `borderWidth`: Width of the border in pixels (default: 12.0)
+- `showVisualEffect`: Whether to show visual effect overlay during processing (default: false, iOS 18+ only)
+
+### Visual Effect Feature (iOS 18+)
+
+When `showVisualEffect` is enabled on iOS 18 or later:
+- Displays a native SwiftUI overlay showing the original image with blur effect
+- Animates to highlight the detected masked region with a bloom glow effect
+- Automatically dismisses with smooth animation after processing completes
+- Provides visual feedback during the sticker creation process
+
+On iOS versions below 18 or when disabled, the feature is ignored and processing continues normally.
 
 ## Examples
 
