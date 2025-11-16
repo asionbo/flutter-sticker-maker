@@ -9,6 +9,9 @@ class StickerDefaults {
   /// Default setting for adding border
   static const bool defaultAddBorder = true;
 
+  /// Default setting for showing visual effect (iOS 18+ only)
+  static const bool defaultShowVisualEffect = false;
+
   /// Maximum recommended image size in pixels (width or height)
   static const int maxImageSize = 4096;
 

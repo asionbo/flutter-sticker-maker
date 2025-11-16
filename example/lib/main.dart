@@ -59,6 +59,7 @@ class _StickerPageState extends State<StickerPage> {
   bool _addBorder = StickerDefaults.defaultAddBorder;
   String _borderColor = StickerDefaults.defaultBorderColor;
   double _borderWidth = StickerDefaults.defaultBorderWidth;
+  bool _showVisualEffect = StickerDefaults.defaultShowVisualEffect;
   bool _isProcessing = false;
 
   @override
@@ -177,6 +178,7 @@ class _StickerPageState extends State<StickerPage> {
         addBorder: _addBorder,
         borderColor: _borderColor,
         borderWidth: _borderWidth,
+        showVisualEffect: _showVisualEffect,
       );
 
       setState(() {
@@ -279,10 +281,21 @@ class _StickerPageState extends State<StickerPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Border Settings',
+              'Sticker Settings',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
+            SwitchListTile(
+              title: const Text('Show Visual Effect'),
+              subtitle: const Text('iOS 18+ only - Shows animated mask preview'),
+              value: _showVisualEffect,
+              onChanged: (value) {
+                setState(() {
+                  _showVisualEffect = value;
+                });
+              },
+            ),
+            const Divider(),
             SwitchListTile(
               title: const Text('Add Border'),
               value: _addBorder,

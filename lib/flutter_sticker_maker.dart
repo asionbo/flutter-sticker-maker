@@ -56,6 +56,7 @@ class FlutterStickerMaker {
   /// - [addBorder]: Whether to add a border around the subject
   /// - [borderColor]: Hex color string (#RRGGBB or RRGGBB format)
   /// - [borderWidth]: Border thickness in pixels (0.0 to 50.0)
+  /// - [showVisualEffect]: Whether to show visual effect overlay (iOS 18+ only)
   ///
   /// **Returns:**
   /// - [Uint8List?]: PNG image data with transparent background, or null if processing failed
@@ -73,6 +74,7 @@ class FlutterStickerMaker {
   ///   addBorder: true,
   ///   borderColor: '#FFFFFF',
   ///   borderWidth: 8.0,
+  ///   showVisualEffect: true, // iOS 18+ only
   /// );
   /// ```
   static Future<Uint8List?> makeSticker(
@@ -80,6 +82,7 @@ class FlutterStickerMaker {
     bool addBorder = StickerDefaults.defaultAddBorder,
     String borderColor = StickerDefaults.defaultBorderColor,
     double borderWidth = StickerDefaults.defaultBorderWidth,
+    bool showVisualEffect = StickerDefaults.defaultShowVisualEffect,
   }) async {
     // Validate input parameters
     _validateInput(imageBytes, borderColor, borderWidth);
@@ -103,6 +106,7 @@ class FlutterStickerMaker {
               'addBorder': addBorder,
               'borderColor': borderColor,
               'borderWidth': borderWidth,
+              'showVisualEffect': showVisualEffect,
             })
             .timeout(
               Duration(seconds: StickerDefaults.processingTimeoutSeconds),

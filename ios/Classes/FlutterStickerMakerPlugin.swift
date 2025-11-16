@@ -92,38 +92,123 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     let borderColor = ColorParser.parse(args["borderColor"] as? String)
     let borderWidth = CGFloat(
       args["borderWidth"] as? Double ?? StickerMakerConfig.defaultBorderWidth)
+    let showVisualEffect = args["showVisualEffect"] as? Bool ?? false
 
     return StickerParameters(
       image: uiImage,
       addBorder: addBorder,
       borderColor: borderColor,
-      borderWidth: max(0, borderWidth)  // Ensure non-negative
+      borderWidth: max(0, borderWidth),  // Ensure non-negative
+      showVisualEffect: showVisualEffect
     )
   }
 
   private func processSticker(with parameters: StickerParameters, result: @escaping FlutterResult) {
-    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      guard let self = self else {
-        DispatchQueue.main.async {
+    // Check if visual effect should be shown (iOS 18+ only)
+    if #available(iOS 18.0, *), parameters.showVisualEffect {
+      // Use main thread for UI presentation
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else {
           result(
             FlutterError(
               code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
+          return
         }
-        return
+        
+        self.processStickerWithVisualEffect(with: parameters, result: result)
       }
-
-      do {
-        let stickerImage = try self.createSticker(from: parameters)
-        guard let stickerData = stickerImage.pngData() else {
-          throw StickerMakerError.imageRenderingFailed
+    } else {
+      // Process without visual effect
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        guard let self = self else {
+          DispatchQueue.main.async {
+            result(
+              FlutterError(
+                code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
+          }
+          return
         }
 
+        do {
+          let stickerImage = try self.createSticker(from: parameters)
+          guard let stickerData = stickerImage.pngData() else {
+            throw StickerMakerError.imageRenderingFailed
+          }
+
+          DispatchQueue.main.async {
+            result(FlutterStandardTypedData(bytes: stickerData))
+          }
+        } catch {
+          os_log(
+            "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
+          DispatchQueue.main.async {
+            result(
+              FlutterError(
+                code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
+          }
+        }
+      }
+    }
+  }
+
+  @available(iOS 18.0, *)
+  private func processStickerWithVisualEffect(with parameters: StickerParameters, result: @escaping FlutterResult) {
+    // Get the root view controller
+    guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+          let rootViewController = windowScene.windows.first?.rootViewController else {
+      result(
+        FlutterError(
+          code: "UI_ERROR", message: "Unable to get root view controller", details: nil))
+      return
+    }
+    
+    // Step 1: Preprocess and generate mask first
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else { return }
+      
+      do {
+        let preprocessedImage = try self.imageProcessor.preprocess(parameters.image)
+        let maskGenerator = MaskGenerator()
+        let maskImage = try maskGenerator.generateMask(for: preprocessedImage)
+        
+        // Step 2: Show visual effect view on main thread
         DispatchQueue.main.async {
-          result(FlutterStandardTypedData(bytes: stickerData))
+          let visualEffectVC = VisualEffectViewController()
+          visualEffectVC.present(image: parameters.image, mask: maskImage, from: rootViewController) {
+            // This is called when the view is dismissed
+          }
+          
+          // Step 3: Continue processing in background
+          DispatchQueue.global(qos: .userInitiated).async {
+            do {
+              // Complete the sticker creation
+              let stickerImage = try self.createSticker(from: parameters)
+              guard let stickerData = stickerImage.pngData() else {
+                throw StickerMakerError.imageRenderingFailed
+              }
+              
+              // Step 4: Dismiss the visual effect view with animation
+              DispatchQueue.main.async {
+                visualEffectVC.dismiss {
+                  result(FlutterStandardTypedData(bytes: stickerData))
+                }
+              }
+            } catch {
+              os_log(
+                "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
+              DispatchQueue.main.async {
+                visualEffectVC.dismiss {
+                  result(
+                    FlutterError(
+                      code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
+                }
+              }
+            }
+          }
         }
       } catch {
         os_log(
-          "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
+          "Mask generation failed: %@", log: self.logger, type: .error, error.localizedDescription)
         DispatchQueue.main.async {
           result(
             FlutterError(
@@ -197,6 +282,7 @@ private struct StickerParameters {
   let addBorder: Bool
   let borderColor: CIColor
   let borderWidth: CGFloat
+  let showVisualEffect: Bool
 }
 
 // MARK: - Image Processor
