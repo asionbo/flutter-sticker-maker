@@ -407,7 +407,19 @@ class _StickerPageState extends State<StickerPage> {
             const SizedBox(height: 8),
             Container(
               constraints: const BoxConstraints(maxHeight: 300),
-              child: Image.memory(imageBytes, fit: BoxFit.contain),
+              child: LiftAnimationWidget(
+                onLongPress: () {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Long press detected! 🎉'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  }
+                },
+                child: Image.memory(imageBytes, fit: BoxFit.contain),
+              ),
             ),
           ],
         ),

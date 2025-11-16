@@ -10,6 +10,7 @@ import 'dart:developer' as dev;
 
 export 'src/constants.dart';
 export 'src/exceptions.dart';
+export 'src/lift_animation_widget.dart';
 
 /// Flutter plugin for creating stickers by removing image backgrounds using ML Kit.
 class FlutterStickerMaker {
