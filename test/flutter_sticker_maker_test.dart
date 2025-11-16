@@ -79,6 +79,31 @@ void main() {
         expect(result, isNotNull);
         expect(result, isA<Uint8List>());
       });
+
+      test('makeSticker works with visual effect parameter', () async {
+        final result = await FlutterStickerMaker.makeSticker(
+          validPngBytes,
+          showVisualEffect: true,
+        );
+
+        expect(result, isNotNull);
+        expect(result, isA<Uint8List>());
+        
+        // Verify the parameter was passed to the platform
+        expect(log.isNotEmpty, isTrue);
+        expect(log.last.arguments['showVisualEffect'], equals(true));
+      });
+
+      test('makeSticker defaults visual effect to false', () async {
+        final result = await FlutterStickerMaker.makeSticker(validPngBytes);
+
+        expect(result, isNotNull);
+        expect(result, isA<Uint8List>());
+        
+        // Verify the default parameter value
+        expect(log.isNotEmpty, isTrue);
+        expect(log.last.arguments['showVisualEffect'], equals(false));
+      });
     });
 
     group('Input validation', () {
