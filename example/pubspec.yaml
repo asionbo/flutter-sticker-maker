@@ -19,7 +19,7 @@ dependencies:
   flutter_sticker_maker:
     path: ../
   permission_handler: ^11.4.0
-  image_picker: ^1.1.2
+  image_picker: ^1.2.0
 
 dev_dependencies:
   flutter_test:
