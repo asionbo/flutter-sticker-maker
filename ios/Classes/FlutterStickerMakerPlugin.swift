@@ -162,54 +162,62 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
       return
     }
     
-    // Step 1: Preprocess and generate mask first
+    let visualEffectVC = VisualEffectViewController()
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else {
+        result(
+          FlutterError(
+            code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
+        return
+      }
+      
+      visualEffectVC.present(
+        image: parameters.image,
+        from: rootViewController,
+        initialStatus: "Preparing sticker…"
+      ) {
+        // Placeholder for future callbacks
+      }
+      
+      self.startStickerPipeline(
+        with: parameters,
+        visualEffectVC: visualEffectVC,
+        result: result
+      )
+    }
+  }
+
+  @available(iOS 18.0, *)
+  private func startStickerPipeline(
+    with parameters: StickerParameters,
+    visualEffectVC: VisualEffectViewController,
+    result: @escaping FlutterResult
+  ) {
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       guard let self = self else { return }
       
       do {
+        visualEffectVC.updateStatus("Enhancing photo…", progress: 0.15)
         let preprocessedImage = try self.imageProcessor.preprocess(parameters.image)
+        
+        visualEffectVC.updateStatus("Generating mask…", progress: 0.4)
         let maskGenerator = MaskGenerator()
         let maskImage = try maskGenerator.generateMask(for: preprocessedImage)
         
-        // Step 2: Show visual effect view on main thread
-        DispatchQueue.main.async {
-          let visualEffectVC = VisualEffectViewController()
-          visualEffectVC.present(image: parameters.image, mask: maskImage, from: rootViewController) {
-            // This is called when the view is dismissed
-          }
-          
-          // Step 3: Continue processing in background
-          DispatchQueue.global(qos: .userInitiated).async {
-            do {
-              // Complete the sticker creation
-              let stickerImage = try self.createSticker(from: parameters)
-              guard let stickerData = stickerImage.pngData() else {
-                throw StickerMakerError.imageRenderingFailed
-              }
-              
-              // Step 4: Dismiss the visual effect view with animation
-              DispatchQueue.main.async {
-                visualEffectVC.dismiss {
-                  result(FlutterStandardTypedData(bytes: stickerData))
-                }
-              }
-            } catch {
-              os_log(
-                "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
-              DispatchQueue.main.async {
-                visualEffectVC.dismiss {
-                  result(
-                    FlutterError(
-                      code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
-                }
-              }
-            }
-          }
+        visualEffectVC.updateMask(maskImage, progress: 0.65, animateLift: true)
+        visualEffectVC.updateStatus("Creating sticker…", progress: 0.8)
+        let stickerImage = try self.createSticker(from: parameters)
+        guard let stickerData = stickerImage.pngData() else {
+          throw StickerMakerError.imageRenderingFailed
+        }
+        
+        visualEffectVC.complete(with: "Sticker ready") {
+          result(FlutterStandardTypedData(bytes: stickerData))
         }
       } catch {
         os_log(
-          "Mask generation failed: %@", log: self.logger, type: .error, error.localizedDescription)
-        DispatchQueue.main.async {
+          "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
+        visualEffectVC.fail(with: "Processing failed") {
           result(
             FlutterError(
               code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
