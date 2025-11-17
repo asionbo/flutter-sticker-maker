@@ -3,6 +3,9 @@ import Flutter
 import UIKit
 import Vision
 import os.log
+#if canImport(SwiftUI)
+import SwiftUI
+#endif
 
 // MARK: - Configuration
 private struct StickerMakerConfig {
@@ -152,72 +155,36 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
   }
 
   @available(iOS 18.0, *)
-  private func processStickerWithVisualEffect(with parameters: StickerParameters, result: @escaping FlutterResult) {
-    // Get the root view controller
-    guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-          let rootViewController = windowScene.windows.first?.rootViewController else {
-      result(
-        FlutterError(
-          code: "UI_ERROR", message: "Unable to get root view controller", details: nil))
-      return
-    }
-    
-    let visualEffectVC = VisualEffectViewController()
-    DispatchQueue.main.async { [weak self] in
-      guard let self = self else {
-        result(
-          FlutterError(
-            code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
-        return
-      }
-      
-      visualEffectVC.present(
-        image: parameters.image,
-        from: rootViewController,
-        initialStatus: "Preparing sticker…"
-      ) {
-        // Placeholder for future callbacks
-      }
-      
-      self.startStickerPipeline(
-        with: parameters,
-        visualEffectVC: visualEffectVC,
-        result: result
-      )
-    }
-  }
-
-  @available(iOS 18.0, *)
-  private func startStickerPipeline(
+  private func processStickerWithVisualEffect(
     with parameters: StickerParameters,
-    visualEffectVC: VisualEffectViewController,
     result: @escaping FlutterResult
   ) {
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      guard let self = self else { return }
-      
+      guard let self = self else {
+        DispatchQueue.main.async {
+          result(
+            FlutterError(
+              code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
+        }
+        return
+      }
+
       do {
-        visualEffectVC.updateStatus("Enhancing photo…", progress: 0.15)
-        let preprocessedImage = try self.imageProcessor.preprocess(parameters.image)
-        
-        visualEffectVC.updateStatus("Generating mask…", progress: 0.4)
-        let maskGenerator = MaskGenerator()
-        let maskImage = try maskGenerator.generateMask(for: preprocessedImage)
-        
-        visualEffectVC.updateMask(maskImage, progress: 0.65, animateLift: true)
-        visualEffectVC.updateStatus("Creating sticker…", progress: 0.8)
         let stickerImage = try self.createSticker(from: parameters)
         guard let stickerData = stickerImage.pngData() else {
           throw StickerMakerError.imageRenderingFailed
         }
-        
-        visualEffectVC.complete(with: "Sticker ready") {
+
+        self.presentStickerAnimation(
+          originalImage: parameters.image,
+          stickerImage: stickerImage
+        ) {
           result(FlutterStandardTypedData(bytes: stickerData))
         }
       } catch {
         os_log(
           "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
-        visualEffectVC.fail(with: "Processing failed") {
+        DispatchQueue.main.async {
           result(
             FlutterError(
               code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
@@ -281,6 +248,45 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
       throw StickerMakerError.imageRenderingFailed
     }
         return UIImage(cgImage: cgImage,scale: 1.0 , orientation: originalOrientation)
+  }
+
+  @available(iOS 18.0, *)
+  private func presentStickerAnimation(
+    originalImage: UIImage,
+    stickerImage: UIImage,
+    completion: @escaping () -> Void
+  ) {
+#if canImport(SwiftUI)
+    DispatchQueue.main.async {
+      guard
+        let windowScene = UIApplication.shared.connectedScenes
+          .compactMap({ $0 as? UIWindowScene })
+          .first(where: { $0.activationState == .foregroundActive })
+          ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+        let presentingWindow = windowScene.windows.first(where: { $0.isKeyWindow })
+          ?? windowScene.windows.first,
+        let rootViewController = presentingWindow.rootViewController
+      else {
+        completion()
+        return
+      }
+
+      let hostingController = UIHostingController(
+        rootView: StickerAnimateView(originalImage: originalImage, stickerImage: stickerImage))
+      hostingController.view.backgroundColor = UIColor.clear
+      hostingController.modalPresentationStyle = .overFullScreen
+
+      rootViewController.present(hostingController, animated: false) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
+          hostingController.dismiss(animated: false) {
+            completion()
+          }
+        }
+      }
+    }
+#else
+    completion()
+#endif
   }
 }
 

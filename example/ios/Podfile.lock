@@ -48,7 +48,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_onnxruntime: 588dcdd569f6ac3e8e943d4340b4b161db0d4fe8
-  flutter_sticker_maker: 0c6f85f631000ccbefa4dd4ebc201f8f658ddf54
+  flutter_sticker_maker: 232800c9c6efc9ea616ad831eeb4b8faacc5d408
   image_picker_ios: 4f2f91b01abdb52842a8e277617df877e40f905b
   onnxruntime-c: 7f778680e96145956c0a31945f260321eed2611a
   onnxruntime-objc: 83d28b87525bd971259a66e153ea32b5d023de19
