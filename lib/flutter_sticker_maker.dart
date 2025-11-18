@@ -83,6 +83,7 @@ class FlutterStickerMaker {
     String borderColor = StickerDefaults.defaultBorderColor,
     double borderWidth = StickerDefaults.defaultBorderWidth,
     bool showVisualEffect = StickerDefaults.defaultShowVisualEffect,
+    SpeckleType speckleType = StickerDefaults.defaultSpeckleType,
   }) async {
     // Validate input parameters
     _validateInput(imageBytes, borderColor, borderWidth);
@@ -107,6 +108,7 @@ class FlutterStickerMaker {
               'borderColor': borderColor,
               'borderWidth': borderWidth,
               'showVisualEffect': showVisualEffect,
+              'speckleType': speckleType.name,
             })
             .timeout(
               Duration(seconds: StickerDefaults.processingTimeoutSeconds),

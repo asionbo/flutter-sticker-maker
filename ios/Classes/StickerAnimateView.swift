@@ -17,7 +17,7 @@ struct StickerAnimateView: View {
 	@State private var hasAnimatedSticker = false
 	@State private var hasStartedProcessing = false
 
-	private let stickerAnimation = Animation.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.25)
+	private let stickerAnimation: Animation = .easeOut(duration: 1.0)
 	private let rotationAngle: Angle
 	private let scaleTransform: CGSize
 	private let spoilerColor: UIColor
@@ -56,7 +56,7 @@ struct StickerAnimateView: View {
 			.opacity(stickerImage == nil ? 1 : 0)
 			.animation(stickerAnimation, value: stickerImage)
 			.overlay {
-				SpoilerView(isOn: true, color: spoilerColor)
+				SpoilerView(isOn: true, color: spoilerColor, speckleType: parameters.speckleType)
 					.opacity(spoilerViewOpacity)
 			}
 	}
@@ -101,19 +101,22 @@ struct StickerAnimateView: View {
 
 	private static func deriveSpoilerColor(from image: UIImage) -> UIColor {
 		guard let avgColor = image.averageColor else {
-			return UIColor.label
+			return UIColor.white.withAlphaComponent(0.4)
 		}
-		// Increase brightness slightly so speckles stand out against matching tones
+
 		var hue: CGFloat = 0
 		var saturation: CGFloat = 0
 		var brightness: CGFloat = 0
 		var alpha: CGFloat = 0
-		avgColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-		return UIColor(
-			hue: hue,
-			saturation: max(0.1, saturation),
-			brightness: min(1.0, brightness + 0.15),
-			alpha: alpha)
+		let resolved = avgColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+		let safeBrightness = resolved ? brightness : avgColor.cgColor.brightnessFallback
+		// Stick to white/black overlays so the reveal effect stays visible regardless of source tones
+		let targetAlpha = max(0.3, min(0.55, 0.35 + abs(0.5 - safeBrightness)))
+		if safeBrightness >= 0.55 {
+			return UIColor.black.withAlphaComponent(targetAlpha)
+		} else {
+			return UIColor.white.withAlphaComponent(targetAlpha)
+		}
 	}
 
 	private func startStickerCreation() {
@@ -166,7 +169,7 @@ struct StickerAnimateView: View {
 		hasAnimatedSticker = true
 
 		spoilerViewOpacity = 0
-		stickerScale = 0.9
+		stickerScale = 1.0
 
 		withAnimation(stickerAnimation) {
 			spoilerViewOpacity = 1
@@ -174,7 +177,7 @@ struct StickerAnimateView: View {
 		}
 
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-			withAnimation(.linear(duration: 0.25)) {
+			withAnimation(.linear(duration: 0.75)) {
 				spoilerViewOpacity = 0
 			}
 		}
@@ -203,21 +206,23 @@ final class EmitterView: UIView {
 struct SpoilerView: UIViewRepresentable {
 	var isOn: Bool
 	var color: UIColor
+	var speckleType: SpeckleType
 
 	func makeUIView(context: Context) -> EmitterView {
 		let emitterView = EmitterView()
 
 		let resourceBundle = Bundle(for: FlutterStickerMakerPlugin.self)
 		let emitterCell = CAEmitterCell()
-		emitterCell.contents = Self.speckleImage(in: resourceBundle)
+		let config = speckleType.emitterSettings
+		emitterCell.contents = Self.speckleImage(for: speckleType, in: resourceBundle)
 		emitterCell.color = color.cgColor
 		emitterCell.contentsScale = 1.8
-		emitterCell.emissionRange = .pi * 2
-		emitterCell.lifetime = 1
-		emitterCell.scale = 0.5
-		emitterCell.velocityRange = 20
-		emitterCell.alphaRange = 1
-		emitterCell.birthRate = 4000
+		emitterCell.emissionRange = config.emissionRange
+		emitterCell.lifetime = config.lifetime
+		emitterCell.scale = config.scale
+		emitterCell.velocityRange = config.velocity
+		emitterCell.alphaRange = config.alphaRange
+		emitterCell.birthRate = config.birthRate
 
 		emitterView.layer.emitterShape = .rectangle
 		emitterView.layer.emitterCells = [emitterCell]
@@ -232,28 +237,53 @@ struct SpoilerView: UIViewRepresentable {
 		uiView.layer.birthRate = isOn ? 1 : 0
 	}
 
-	private static func speckleImage(in bundle: Bundle) -> CGImage? {
-		UIImage(
-			named: "textSpeckle_Normal",
-			in: bundle,
-			compatibleWith: nil
-		)?.cgImage ?? fallbackSpeckleImage
+	private static func speckleImage(for type: SpeckleType, in bundle: Bundle) -> CGImage {
+		if let assetName = type.emitterSettings.assetName,
+			let cgImage = UIImage(
+				named: assetName,
+				in: bundle,
+				compatibleWith: nil
+			)?.cgImage {
+			return cgImage
+		}
+		return fallbackSpeckleImage(for: type)
 	}
 
-	private static let fallbackSpeckleImage: CGImage = {
-		let size = CGSize(width: 32, height: 32)
+	private static func fallbackSpeckleImage(for type: SpeckleType) -> CGImage {
+		let size = CGSize(width: 20, height: 20)
 		let renderer = UIGraphicsImageRenderer(size: size)
 		let image = renderer.image { context in
 			context.cgContext.setFillColor(UIColor.white.cgColor)
-			let inset = size.width * 0.2
-			let circle = CGRect(origin: .zero, size: size).insetBy(dx: inset, dy: inset)
-			context.cgContext.fillEllipse(in: circle)
+			switch type.emitterSettings.fallbackShape {
+			case .circle:
+				let inset = size.width * 0.4
+				let circle = CGRect(origin: .zero, size: size).insetBy(dx: inset, dy: inset)
+				context.cgContext.fillEllipse(in: circle)
+			case .diamond:
+				let path = UIBezierPath()
+				let center = CGPoint(x: size.width / 2, y: size.height / 2)
+				let radius = size.width * 0.35
+				path.move(to: CGPoint(x: center.x, y: center.y - radius))
+				path.addLine(to: CGPoint(x: center.x + radius, y: center.y))
+				path.addLine(to: CGPoint(x: center.x, y: center.y + radius))
+				path.addLine(to: CGPoint(x: center.x - radius, y: center.y))
+				path.close()
+				path.fill()
+			case .stripe:
+				let stripeWidth = size.width * 0.2
+				let rect = CGRect(
+					x: (size.width - stripeWidth) / 2,
+					y: size.height * 0.15,
+					width: stripeWidth,
+					height: size.height * 0.7)
+				context.cgContext.fill(rect)
+			}
 		}
 		guard let cgImage = image.cgImage else {
 			preconditionFailure("Failed to render fallback speckle image")
 		}
 		return cgImage
-	}()
+	}
 }
 
 private extension UIImage {
@@ -282,6 +312,23 @@ private extension UIImage {
 			green: CGFloat(bitmap[1]) / 255.0,
 			blue: CGFloat(bitmap[2]) / 255.0,
 			alpha: CGFloat(bitmap[3]) / 255.0)
+	}
+}
+
+private extension CGColor {
+	var brightnessFallback: CGFloat {
+		guard let components = components else { return 0.5 }
+		switch numberOfComponents {
+		case 2:
+			return components[0]
+		case 4:
+			let red = components[0]
+			let green = components[1]
+			let blue = components[2]
+			return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+		default:
+			return 0.5
+		}
 	}
 }
 

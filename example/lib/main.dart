@@ -60,6 +60,7 @@ class _StickerPageState extends State<StickerPage> {
   String _borderColor = StickerDefaults.defaultBorderColor;
   double _borderWidth = StickerDefaults.defaultBorderWidth;
   bool _showVisualEffect = StickerDefaults.defaultShowVisualEffect;
+  SpeckleType _speckleType = SpeckleType.classic;
   bool _isProcessing = false;
 
   @override
@@ -179,6 +180,7 @@ class _StickerPageState extends State<StickerPage> {
         borderColor: _borderColor,
         borderWidth: _borderWidth,
         showVisualEffect: _showVisualEffect,
+        speckleType: _speckleType,
       );
 
       setState(() {
@@ -287,7 +289,9 @@ class _StickerPageState extends State<StickerPage> {
             const SizedBox(height: 16),
             SwitchListTile(
               title: const Text('Show Visual Effect'),
-              subtitle: const Text('iOS 18+ only - Shows animated mask preview'),
+              subtitle: const Text(
+                'iOS 18+ only - Shows animated mask preview',
+              ),
               value: _showVisualEffect,
               onChanged: (value) {
                 setState(() {
@@ -295,6 +299,32 @@ class _StickerPageState extends State<StickerPage> {
                 });
               },
             ),
+            if (_showVisualEffect) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Speckle Style',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children:
+                    SpeckleType.values.map((type) {
+                      final isSelected = _speckleType == type;
+                      return ChoiceChip(
+                        label: Text(_describeSpeckle(type)),
+                        selected: isSelected,
+                        onSelected: (_) {
+                          setState(() {
+                            _speckleType = type;
+                          });
+                        },
+                      );
+                    }).toList(),
+              ),
+              const Divider(),
+            ],
             const Divider(),
             SwitchListTile(
               title: const Text('Add Border'),
@@ -460,4 +490,6 @@ class _StickerPageState extends State<StickerPage> {
       ),
     );
   }
+
+  String _describeSpeckle(SpeckleType type) => type.label;
 }

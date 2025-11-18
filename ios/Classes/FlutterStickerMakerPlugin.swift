@@ -97,13 +97,16 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     let borderWidth = CGFloat(
       args["borderWidth"] as? Double ?? StickerMakerConfig.defaultBorderWidth)
     let showVisualEffect = args["showVisualEffect"] as? Bool ?? false
+    let speckleRawValue = args["speckleType"] as? String
+    let speckleType = SpeckleType.from(rawValue: speckleRawValue)
 
     return StickerParameters(
       image: uiImage,
       addBorder: addBorder,
       borderColor: borderColor,
       borderWidth: max(0, borderWidth),  // Ensure non-negative
-      showVisualEffect: showVisualEffect
+      showVisualEffect: showVisualEffect,
+      speckleType: speckleType
     )
   }
 
@@ -339,12 +342,76 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
 }
 
 // MARK: - Supporting Types
+internal enum SpeckleType: String {
+  case classic
+  case sparkle
+  case burst
+
+  struct EmitterSettings {
+    let assetName: String?
+    let fallbackShape: FallbackShape
+    let scale: CGFloat
+    let birthRate: Float
+    let velocity: CGFloat
+    let lifetime: Float
+    let alphaRange: Float
+    let emissionRange: CGFloat
+  }
+
+  enum FallbackShape {
+    case circle
+    case diamond
+    case stripe
+  }
+
+  static func from(rawValue: String?) -> SpeckleType {
+    guard let raw = rawValue?.lowercased() else { return .classic }
+    return SpeckleType(rawValue: raw) ?? .classic
+  }
+
+  var emitterSettings: EmitterSettings {
+    switch self {
+    case .classic:
+      return EmitterSettings(
+        assetName: "textSpeckle_Normal",
+        fallbackShape: .circle,
+        scale: 0.5,
+        birthRate: 4000,
+        velocity: 20,
+        lifetime: 1.0,
+        alphaRange: 1,
+        emissionRange: .pi * 2)
+    case .sparkle:
+      return EmitterSettings(
+        assetName: nil,
+        fallbackShape: .diamond,
+        scale: 0.35,
+        birthRate: 2800,
+        velocity: 35,
+        lifetime: 1.4,
+        alphaRange: 0.6,
+        emissionRange: .pi * 2)
+    case .burst:
+      return EmitterSettings(
+        assetName: nil,
+        fallbackShape: .circle,
+        scale: 0.65,
+        birthRate: 1800,
+        velocity: 55,
+        lifetime: 0.8,
+        alphaRange: 0.8,
+        emissionRange: .pi * 2)
+    }
+  }
+}
+
 internal struct StickerParameters {
   let image: UIImage
   let addBorder: Bool
   let borderColor: CIColor
   let borderWidth: CGFloat
   let showVisualEffect: Bool
+  let speckleType: SpeckleType
 }
 
 // MARK: - Image Processor
