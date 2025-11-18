@@ -17,6 +17,20 @@ struct StickerAnimateView: View {
 	@State private var hasStartedProcessing = false
 
 	private let stickerAnimation = Animation.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.25)
+	private let rotationAngle: Angle
+	private let scaleTransform: CGSize
+	
+	init(originalImage: UIImage, parameters: StickerParameters, plugin: FlutterStickerMakerPlugin, onComplete: @escaping (Data) -> Void, onError: @escaping (Error) -> Void) {
+		self.originalImage = originalImage
+		self.parameters = parameters
+		self.plugin = plugin
+		self.onComplete = onComplete
+		self.onError = onError
+		
+		// Pre-compute transforms
+		self.rotationAngle = Self.computeRotationAngle(for: originalImage.imageOrientation)
+		self.scaleTransform = Self.computeScaleTransform(for: originalImage.imageOrientation)
+	}
 
 	var body: some View {
 		ZStack {
@@ -51,12 +65,12 @@ struct StickerAnimateView: View {
 				.resizable()
 				.scaledToFit()
 				.scaleEffect(stickerScale)
-				.rotationEffect(rotationAngle(for: originalImage.imageOrientation))
-				.scaleEffect(scaleTransform(for: originalImage.imageOrientation))
+				.rotationEffect(rotationAngle)
+				.scaleEffect(scaleTransform)
 		}
 	}
 	
-	private func rotationAngle(for orientation: UIImage.Orientation) -> Angle {
+	private static func computeRotationAngle(for orientation: UIImage.Orientation) -> Angle {
 		switch orientation {
 		case .up, .upMirrored:
 			return .zero
@@ -71,7 +85,7 @@ struct StickerAnimateView: View {
 		}
 	}
 	
-	private func scaleTransform(for orientation: UIImage.Orientation) -> CGSize {
+	private static func computeScaleTransform(for orientation: UIImage.Orientation) -> CGSize {
 		switch orientation {
 		case .upMirrored, .downMirrored:
 			return CGSize(width: -1, height: 1)
@@ -83,41 +97,56 @@ struct StickerAnimateView: View {
 	}
 
 	private func startStickerCreation() {
-		DispatchQueue.global(qos: .userInitiated).async {
-			do {
-				let maskImage = try plugin.generateMask(for: originalImage)
-				let maskedCIImage = try plugin.buildMaskedImage(
-					preprocessedImage: originalImage,
-					maskImage: maskImage)
-				let preview = try plugin.uiImage(
-					from: maskedCIImage,
-					orientation: parameters.image.imageOrientation)
+		let setStickerImage: (UIImage?) -> Void = { [self] image in
+			Task { @MainActor in
+				self.stickerImage = image
+			}
+		}
+		
+		let triggerAnimation: () -> Void = { [self] in
+			Task { @MainActor in
+				self.runStickerAnimation()
+			}
+		}
+		
+		DispatchQueue.global(qos: .userInitiated).async { [originalImage, parameters, plugin, onComplete, onError] in
+			autoreleasepool {
+				do {
+					let maskImage = try plugin.generateMask(for: originalImage)
+					let maskedCIImage = try plugin.buildMaskedImage(
+						preprocessedImage: originalImage,
+						maskImage: maskImage)
+					let preview = try plugin.uiImage(
+						from: maskedCIImage,
+						orientation: parameters.image.imageOrientation)
 
-				DispatchQueue.main.async {
-					stickerImage = preview
-					runStickerAnimation()
-				}
+					setStickerImage(preview)
+					triggerAnimation()
 
-				// Create final sticker with border
-				let finalCIImage = plugin.addBorderIfNeeded(
-					to: maskedCIImage,
-					mask: maskImage,
-					parameters: parameters)
-				let renderedSticker = try plugin.renderImage(
-					finalCIImage,
-					originalImage: parameters.image)
+					// Create final sticker with border in separate autoreleasepool
+					let stickerData: Data = try autoreleasepool {
+						let finalCIImage = plugin.addBorderIfNeeded(
+							to: maskedCIImage,
+							mask: maskImage,
+							parameters: parameters)
+						let renderedSticker = try plugin.renderImage(
+							finalCIImage,
+							originalImage: parameters.image)
 
-				guard let stickerData = renderedSticker.pngData() else {
-					throw StickerMakerError.imageRenderingFailed
-				}
+						guard let data = renderedSticker.pngData() else {
+							throw StickerMakerError.imageRenderingFailed
+						}
+						return data
+					}
 
-				// Wait for animation to complete before returning result
-				DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
-					onComplete(stickerData)
-				}
-			} catch {
-				DispatchQueue.main.async {
-					onError(error)
+					// Wait for animation to complete before returning result
+					DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
+						onComplete(stickerData)
+					}
+				} catch {
+					DispatchQueue.main.async {
+						onError(error)
+					}
 				}
 			}
 		}

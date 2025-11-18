@@ -42,6 +42,7 @@ internal enum StickerMakerError: Error, LocalizedError {
 public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
   private let logger = OSLog(
     subsystem: Bundle.main.bundleIdentifier ?? "StickerMaker", category: "Plugin")
+  private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
   private let imageProcessor = ImageProcessor()
   private let borderRenderer = BorderRenderer()
 
@@ -245,8 +246,7 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
   }
 
   internal func renderImage(_ ciImage: CIImage, originalImage: UIImage) throws -> UIImage {
-    let context = CIContext(options: [.useSoftwareRenderer: false])
-    guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+    guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
       throw StickerMakerError.imageRenderingFailed
     }
     return UIImage(cgImage: cgImage, scale: 1.0, orientation: originalImage.imageOrientation)
@@ -269,8 +269,7 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     scale: CGFloat = UIScreen.main.scale,
     orientation: UIImage.Orientation = .up
   ) throws -> UIImage {
-    let context = CIContext(options: [.useSoftwareRenderer: false])
-    guard let cg = context.createCGImage(ciImage, from: ciImage.extent) else {
+    guard let cg = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
       throw StickerMakerError.imageRenderingFailed
     }
     return UIImage(cgImage: cg, scale: scale, orientation: orientation)
@@ -348,13 +347,14 @@ internal struct StickerParameters {
 
 // MARK: - Image Processor
 private class ImageProcessor {
+  private let context = CIContext(options: [.useSoftwareRenderer: false, .priorityRequestLow: true])
+  
   func preprocess(_ image: UIImage) throws -> UIImage {
     guard let cgImage = image.cgImage else {
       throw StickerMakerError.unsupportedImageFormat
     }
 
     let ciImage = CIImage(cgImage: cgImage)
-    let context = CIContext()
 
     // Apply noise reduction
     let noiseFilter = CIFilter.noiseReduction()
@@ -382,6 +382,8 @@ private class ImageProcessor {
 // MARK: - Mask Generator
 @available(iOS 17.0, *)
 private class MaskGenerator {
+  private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+  
   func generateMask(for image: UIImage) throws -> CIImage {
     guard let inputCIImage = CIImage(image: image) else {
       throw StickerMakerError.invalidImageData
@@ -391,7 +393,7 @@ private class MaskGenerator {
       ciImage: inputCIImage,
       options: [
         VNImageOption.cameraIntrinsics: NSNull(),
-        VNImageOption.ciContext: CIContext(options: [.useSoftwareRenderer: false]),
+        VNImageOption.ciContext: ciContext,
       ])
 
     let request = VNGenerateForegroundInstanceMaskRequest()
