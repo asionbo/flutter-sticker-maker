@@ -1,6 +1,7 @@
 #if canImport(UIKit) && canImport(SwiftUI)
 import SwiftUI
 import UIKit
+import CoreImage
 
 @available(iOS 17.0, *)
 struct StickerAnimateView: View {
@@ -19,6 +20,7 @@ struct StickerAnimateView: View {
 	private let stickerAnimation = Animation.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.25)
 	private let rotationAngle: Angle
 	private let scaleTransform: CGSize
+	private let spoilerColor: UIColor
 	
 	init(originalImage: UIImage, parameters: StickerParameters, plugin: FlutterStickerMakerPlugin, onComplete: @escaping (Data) -> Void, onError: @escaping (Error) -> Void) {
 		self.originalImage = originalImage
@@ -30,6 +32,7 @@ struct StickerAnimateView: View {
 		// Pre-compute transforms
 		self.rotationAngle = Self.computeRotationAngle(for: originalImage.imageOrientation)
 		self.scaleTransform = Self.computeScaleTransform(for: originalImage.imageOrientation)
+		self.spoilerColor = Self.deriveSpoilerColor(from: originalImage)
 	}
 
 	var body: some View {
@@ -53,7 +56,7 @@ struct StickerAnimateView: View {
 			.opacity(stickerImage == nil ? 1 : 0)
 			.animation(stickerAnimation, value: stickerImage)
 			.overlay {
-				SpoilerView(isOn: true)
+				SpoilerView(isOn: true, color: spoilerColor)
 					.opacity(spoilerViewOpacity)
 			}
 	}
@@ -94,6 +97,23 @@ struct StickerAnimateView: View {
 		default:
 			return CGSize(width: 1, height: 1)
 		}
+	}
+
+	private static func deriveSpoilerColor(from image: UIImage) -> UIColor {
+		guard let avgColor = image.averageColor else {
+			return UIColor.label
+		}
+		// Increase brightness slightly so speckles stand out against matching tones
+		var hue: CGFloat = 0
+		var saturation: CGFloat = 0
+		var brightness: CGFloat = 0
+		var alpha: CGFloat = 0
+		avgColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+		return UIColor(
+			hue: hue,
+			saturation: max(0.1, saturation),
+			brightness: min(1.0, brightness + 0.15),
+			alpha: alpha)
 	}
 
 	private func startStickerCreation() {
@@ -182,6 +202,7 @@ final class EmitterView: UIView {
 
 struct SpoilerView: UIViewRepresentable {
 	var isOn: Bool
+	var color: UIColor
 
 	func makeUIView(context: Context) -> EmitterView {
 		let emitterView = EmitterView()
@@ -189,7 +210,7 @@ struct SpoilerView: UIViewRepresentable {
 		let resourceBundle = Bundle(for: FlutterStickerMakerPlugin.self)
 		let emitterCell = CAEmitterCell()
 		emitterCell.contents = Self.speckleImage(in: resourceBundle)
-		emitterCell.color = UIColor.label.cgColor
+		emitterCell.color = color.cgColor
 		emitterCell.contentsScale = 1.8
 		emitterCell.emissionRange = .pi * 2
 		emitterCell.lifetime = 1
@@ -233,6 +254,35 @@ struct SpoilerView: UIViewRepresentable {
 		}
 		return cgImage
 	}()
+}
+
+private extension UIImage {
+	var averageColor: UIColor? {
+		guard let inputImage = CIImage(image: self) else { return nil }
+		let extent = inputImage.extent
+		let parameters: [String: Any] = [
+			kCIInputImageKey: inputImage,
+			kCIInputExtentKey: CIVector(cgRect: extent)
+		]
+		guard let filter = CIFilter(name: "CIAreaAverage", parameters: parameters),
+			let outputImage = filter.outputImage else {
+			return nil
+		}
+		var bitmap = [UInt8](repeating: 0, count: 4)
+		let context = CIContext(options: [.useSoftwareRenderer: false])
+		context.render(
+			outputImage,
+			toBitmap: &bitmap,
+			rowBytes: 4,
+			bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+			format: .RGBA8,
+			colorSpace: CGColorSpaceCreateDeviceRGB())
+		return UIColor(
+			red: CGFloat(bitmap[0]) / 255.0,
+			green: CGFloat(bitmap[1]) / 255.0,
+			blue: CGFloat(bitmap[2]) / 255.0,
+			alpha: CGFloat(bitmap[3]) / 255.0)
+	}
 }
 
 #endif
