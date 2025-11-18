@@ -2,14 +2,19 @@
 import SwiftUI
 import UIKit
 
-@available(iOS 18.0, *)
+@available(iOS 17.0, *)
 struct StickerAnimateView: View {
 	let originalImage: UIImage
-	let stickerImage: UIImage?
+	let parameters: StickerParameters
+	let plugin: FlutterStickerMakerPlugin
+	let onComplete: (Data) -> Void
+	let onError: (Error) -> Void
 
+	@State private var stickerImage: UIImage?
 	@State private var stickerScale: CGFloat = 1.0
 	@State private var spoilerViewOpacity: CGFloat = 0.0
 	@State private var hasAnimatedSticker = false
+	@State private var hasStartedProcessing = false
 
 	private let stickerAnimation = Animation.spring(response: 0.5, dampingFraction: 0.75, blendDuration: 0.25)
 
@@ -18,9 +23,12 @@ struct StickerAnimateView: View {
 			originalImageView
 			stickerImageView
 		}
-		.padding(32)
-		.frame(maxWidth: .infinity, maxHeight: .infinity)
-		.background(Color.black.opacity(0.85))
+		.onAppear {
+			if !hasStartedProcessing {
+				hasStartedProcessing = true
+				startStickerCreation()
+			}
+		}
 	}
 
 	@ViewBuilder
@@ -43,7 +51,75 @@ struct StickerAnimateView: View {
 				.resizable()
 				.scaledToFit()
 				.scaleEffect(stickerScale)
-				.onAppear { runStickerAnimation() }
+				.rotationEffect(rotationAngle(for: originalImage.imageOrientation))
+				.scaleEffect(scaleTransform(for: originalImage.imageOrientation))
+		}
+	}
+	
+	private func rotationAngle(for orientation: UIImage.Orientation) -> Angle {
+		switch orientation {
+		case .up, .upMirrored:
+			return .zero
+		case .down, .downMirrored:
+			return .degrees(180)
+		case .left, .leftMirrored:
+			return .degrees(90)
+		case .right, .rightMirrored:
+			return .degrees(-90)
+		@unknown default:
+			return .zero
+		}
+	}
+	
+	private func scaleTransform(for orientation: UIImage.Orientation) -> CGSize {
+		switch orientation {
+		case .upMirrored, .downMirrored:
+			return CGSize(width: -1, height: 1)
+		case .leftMirrored, .rightMirrored:
+			return CGSize(width: 1, height: -1)
+		default:
+			return CGSize(width: 1, height: 1)
+		}
+	}
+
+	private func startStickerCreation() {
+		DispatchQueue.global(qos: .userInitiated).async {
+			do {
+				let maskImage = try plugin.generateMask(for: originalImage)
+				let maskedCIImage = try plugin.buildMaskedImage(
+					preprocessedImage: originalImage,
+					maskImage: maskImage)
+				let preview = try plugin.uiImage(
+					from: maskedCIImage,
+					orientation: parameters.image.imageOrientation)
+
+				DispatchQueue.main.async {
+					stickerImage = preview
+					runStickerAnimation()
+				}
+
+				// Create final sticker with border
+				let finalCIImage = plugin.addBorderIfNeeded(
+					to: maskedCIImage,
+					mask: maskImage,
+					parameters: parameters)
+				let renderedSticker = try plugin.renderImage(
+					finalCIImage,
+					originalImage: parameters.image)
+
+				guard let stickerData = renderedSticker.pngData() else {
+					throw StickerMakerError.imageRenderingFailed
+				}
+
+				// Wait for animation to complete before returning result
+				DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
+					onComplete(stickerData)
+				}
+			} catch {
+				DispatchQueue.main.async {
+					onError(error)
+				}
+			}
 		}
 	}
 

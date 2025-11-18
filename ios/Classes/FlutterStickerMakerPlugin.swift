@@ -20,7 +20,7 @@ private struct StickerMakerConfig {
 }
 
 // MARK: - Error Types
-enum StickerMakerError: Error, LocalizedError {
+internal enum StickerMakerError: Error, LocalizedError {
   case invalidImageData
   case imagePreprocessingFailed
   case maskGenerationFailed
@@ -108,7 +108,7 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
 
   private func processSticker(with parameters: StickerParameters, result: @escaping FlutterResult) {
     // Check if visual effect should be shown (iOS 18+ only)
-    if #available(iOS 18.0, *), parameters.showVisualEffect {
+    if #available(iOS 17.0, *), parameters.showVisualEffect {
       // Use main thread for UI presentation
       DispatchQueue.main.async { [weak self] in
         guard let self = self else {
@@ -154,7 +154,7 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     }
   }
 
-  @available(iOS 18.0, *)
+  @available(iOS 17.0, *)
   private func processStickerWithVisualEffect(
     with parameters: StickerParameters,
     result: @escaping FlutterResult
@@ -170,17 +170,13 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
       }
 
       do {
-        let stickerImage = try self.createSticker(from: parameters)
-        guard let stickerData = stickerImage.pngData() else {
-          throw StickerMakerError.imageRenderingFailed
-        }
+        let preprocessedImage = try self.imageProcessor.preprocess(parameters.image)
 
         self.presentStickerAnimation(
-          originalImage: parameters.image,
-          stickerImage: stickerImage
-        ) {
-          result(FlutterStandardTypedData(bytes: stickerData))
-        }
+          originalImage: preprocessedImage,
+          parameters: parameters,
+          result: result
+        )
       } catch {
         os_log(
           "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
@@ -194,35 +190,61 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
   }
 
   private func createSticker(from parameters: StickerParameters) throws -> UIImage {
-    // Step 1: Preprocess image
     let preprocessedImage = try imageProcessor.preprocess(parameters.image)
-
-    // Step 2: Generate mask (only available on iOS 17+)
     let maskImage: CIImage
     if #available(iOS 17.0, *) {
-      let maskGenerator = MaskGenerator()
-      maskImage = try maskGenerator.generateMask(for: preprocessedImage)
+      maskImage = try generateMask(for: preprocessedImage)
     } else {
       throw StickerMakerError.maskGenerationFailed
     }
-
-    // Step 3: Apply mask and optional border
-    // Apply orientation transform to CIImage to match original orientation
-    let ciImage = CIImage(image: preprocessedImage) ?? CIImage()
-      let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(preprocessedImage.imageOrientation.exifOrientation))
-    let maskedImage = try applyMask(maskImage, to: orientedCIImage)
-
-    let finalImage =
-      parameters.addBorder
-      ? borderRenderer.addBorder(
-        to: maskedImage, mask: maskImage, color: parameters.borderColor,
-        width: parameters.borderWidth) : maskedImage
-
-    // Step 4: Render final image with original scale
-    return try renderImage(finalImage, originalImage: parameters.image)
+    let finalCIImage = try buildFinalImage(
+      parameters: parameters,
+      preprocessedImage: preprocessedImage,
+      maskImage: maskImage)
+    return try renderImage(finalCIImage, originalImage: parameters.image)
   }
 
-  private func renderImage(_ ciImage: CIImage, originalImage: UIImage) throws -> UIImage {
+  private func buildFinalImage(
+    parameters: StickerParameters,
+    preprocessedImage: UIImage,
+    maskImage: CIImage
+  ) throws -> CIImage {
+    let maskedImage = try buildMaskedImage(
+      preprocessedImage: preprocessedImage,
+      maskImage: maskImage)
+    return addBorderIfNeeded(to: maskedImage, mask: maskImage, parameters: parameters)
+  }
+
+  internal func buildMaskedImage(
+    preprocessedImage: UIImage,
+    maskImage: CIImage
+  ) throws -> CIImage {
+    let ciImage = CIImage(image: preprocessedImage) ?? CIImage()
+    let orientedCIImage = ciImage.oriented(
+      forExifOrientation: Int32(preprocessedImage.imageOrientation.exifOrientation))
+    return try applyMask(maskImage, to: orientedCIImage)
+  }
+
+  internal func addBorderIfNeeded(
+    to image: CIImage,
+    mask: CIImage,
+    parameters: StickerParameters
+  ) -> CIImage {
+    guard parameters.addBorder else { return image }
+    return borderRenderer.addBorder(
+      to: image,
+      mask: mask,
+      color: parameters.borderColor,
+      width: parameters.borderWidth)
+  }
+
+  @available(iOS 17.0, *)
+  internal func generateMask(for image: UIImage) throws -> CIImage {
+    let maskGenerator = MaskGenerator()
+    return try maskGenerator.generateMask(for: image)
+  }
+
+  internal func renderImage(_ ciImage: CIImage, originalImage: UIImage) throws -> UIImage {
     let context = CIContext(options: [.useSoftwareRenderer: false])
     guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
       throw StickerMakerError.imageRenderingFailed
@@ -242,22 +264,33 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     return result
   }
 
-    private func renderImage(_ ciImage: CIImage, originalOrientation: UIImage.Orientation) throws -> UIImage {
+  internal func uiImage(
+    from ciImage: CIImage,
+    scale: CGFloat = UIScreen.main.scale,
+    orientation: UIImage.Orientation = .up
+  ) throws -> UIImage {
     let context = CIContext(options: [.useSoftwareRenderer: false])
-    guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+    guard let cg = context.createCGImage(ciImage, from: ciImage.extent) else {
       throw StickerMakerError.imageRenderingFailed
     }
-        return UIImage(cgImage: cgImage,scale: 1.0 , orientation: originalOrientation)
+    return UIImage(cgImage: cg, scale: scale, orientation: orientation)
   }
 
-  @available(iOS 18.0, *)
+  @available(iOS 17.0, *)
   private func presentStickerAnimation(
     originalImage: UIImage,
-    stickerImage: UIImage,
-    completion: @escaping () -> Void
+    parameters: StickerParameters,
+    result: @escaping FlutterResult
   ) {
 #if canImport(SwiftUI)
-    DispatchQueue.main.async {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else {
+        result(
+          FlutterError(
+            code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
+        return
+      }
+
       guard
         let windowScene = UIApplication.shared.connectedScenes
           .compactMap({ $0 as? UIWindowScene })
@@ -267,31 +300,45 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
           ?? windowScene.windows.first,
         let rootViewController = presentingWindow.rootViewController
       else {
-        completion()
+        result(
+          FlutterError(
+            code: "INTERNAL_ERROR", message: "Failed to find window", details: nil))
         return
       }
 
       let hostingController = UIHostingController(
-        rootView: StickerAnimateView(originalImage: originalImage, stickerImage: stickerImage))
+        rootView: StickerAnimateView(
+          originalImage: originalImage,
+          parameters: parameters,
+          plugin: self,
+          onComplete: { [weak rootViewController] stickerData in
+            rootViewController?.presentedViewController?.dismiss(animated: false) {
+              result(FlutterStandardTypedData(bytes: stickerData))
+            }
+          },
+          onError: { [weak rootViewController] error in
+            rootViewController?.presentedViewController?.dismiss(animated: false) {
+              result(
+                FlutterError(
+                  code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
+            }
+          }
+        ))
       hostingController.view.backgroundColor = UIColor.clear
       hostingController.modalPresentationStyle = .overFullScreen
 
-      rootViewController.present(hostingController, animated: false) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
-          hostingController.dismiss(animated: false) {
-            completion()
-          }
-        }
-      }
+      rootViewController.present(hostingController, animated: false)
     }
 #else
-    completion()
+    result(
+      FlutterError(
+        code: "UNSUPPORTED", message: "SwiftUI not available", details: nil))
 #endif
   }
 }
 
 // MARK: - Supporting Types
-private struct StickerParameters {
+internal struct StickerParameters {
   let image: UIImage
   let addBorder: Bool
   let borderColor: CIColor
