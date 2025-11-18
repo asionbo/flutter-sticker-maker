@@ -19,7 +19,7 @@ class StickerDefaults {
   /// Default setting for adding border
   static const bool defaultAddBorder = true;
 
-  /// Default setting for showing visual effect (iOS 18+ only)
+  /// Default setting for showing visual effect overlays
   static const bool defaultShowVisualEffect = false;
 
   /// Default speckle style for the visual effect

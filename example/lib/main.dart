@@ -290,7 +290,7 @@ class _StickerPageState extends State<StickerPage> {
             SwitchListTile(
               title: const Text('Show Visual Effect'),
               subtitle: const Text(
-                'iOS 18+ only - Shows animated mask preview',
+                'iOS 17+ native or Flutter overlay on ONNX platforms',
               ),
               value: _showVisualEffect,
               onChanged: (value) {

@@ -1,5 +1,5 @@
 ## 0.1.8
-* Added visual effect feature for iOS 18+ with `showVisualEffect` parameter.
+* Added visual effect feature with `showVisualEffect` parameter. Flutter overlay on ONNX platforms (Android & older iOS). Native SwiftUI overlay on iOS 17+.
 * Shows animated overlay with blur effect and mask highlighting during processing.
 * Uses SwiftUI and iOS Vision API for smooth animations.
 

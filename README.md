@@ -52,7 +52,7 @@ final stickerWithBorder = await FlutterStickerMaker.makeSticker(
   borderWidth: 15.0,      // 15 pixel border width
 );
 
-// With visual effect (iOS 18+ only)
+// With visual effect (native on iOS 17+, Flutter overlay on ONNX platforms)
 final stickerWithEffect = await FlutterStickerMaker.makeSticker(
   imageBytes,
   showVisualEffect: true, // Shows animated preview overlay
@@ -65,17 +65,16 @@ final stickerWithEffect = await FlutterStickerMaker.makeSticker(
 - `addBorder`: Whether to add a border around the sticker (default: true)
 - `borderColor`: Hex color string for the border (default: '#FFFFFF')
 - `borderWidth`: Width of the border in pixels (default: 12.0)
-- `showVisualEffect`: Whether to show visual effect overlay during processing (default: false, iOS 18+ only)
+- `showVisualEffect`: Whether to show the visual effect overlay during processing (native SwiftUI on iOS 17+, Flutter overlay everywhere else, default: false)
 
-### Visual Effect Feature (iOS 18+)
+### Visual Effect Feature
 
-When `showVisualEffect` is enabled on iOS 18 or later:
-- Displays a native SwiftUI overlay showing the original image with blur effect
-- Animates to highlight the detected masked region with a bloom glow effect
-- Automatically dismisses with smooth animation after processing completes
-- Provides visual feedback during the sticker creation process
+When `showVisualEffect` is enabled:
+- **iOS 17+ (Vision mode)** uses the native SwiftUI overlay with speckle emitters and mask reveal animation.
+- **ONNX platforms (Android & older iOS)** now render a Flutter-based overlay with the same speckle styles, adaptive tinting, and sticker pop animation.
+- The overlay automatically dismisses after processing finishes and gracefully falls back if no root overlay is available.
 
-On iOS versions below 18 or when disabled, the feature is ignored and processing continues normally.
+On platforms where overlays cannot be drawn (e.g., headless tests), the request still completes without animation.
 
 ## Examples
 
