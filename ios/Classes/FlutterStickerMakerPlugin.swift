@@ -108,50 +108,24 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
   }
 
   private func processSticker(with parameters: StickerParameters, result: @escaping FlutterResult) {
-    // Check if visual effect should be shown (iOS 18+ only)
     if #available(iOS 17.0, *), parameters.showVisualEffect {
-      // Use main thread for UI presentation
-      DispatchQueue.main.async { [weak self] in
-        guard let self = self else {
-          result(
-            FlutterError(
-              code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
-          return
-        }
-        
-        self.processStickerWithVisualEffect(with: parameters, result: result)
-      }
-    } else {
-      // Process without visual effect
-      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-        guard let self = self else {
-          DispatchQueue.main.async {
-            result(
-              FlutterError(
-                code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
-          }
-          return
-        }
+      processStickerWithVisualEffect(with: parameters, result: result)
+      return
+    }
 
-        do {
-          let stickerImage = try self.createSticker(from: parameters)
-          guard let stickerData = stickerImage.pngData() else {
-            throw StickerMakerError.imageRenderingFailed
-          }
+    processStickerWithoutVisualEffect(with: parameters, result: result)
+  }
 
-          DispatchQueue.main.async {
-            result(FlutterStandardTypedData(bytes: stickerData))
-          }
-        } catch {
-          os_log(
-            "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
-          DispatchQueue.main.async {
-            result(
-              FlutterError(
-                code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
-          }
-        }
+  private func processStickerWithoutVisualEffect(
+    with parameters: StickerParameters,
+    result: @escaping FlutterResult
+  ) {
+    performStickerWork(result: result) { plugin in
+      let stickerImage = try plugin.createSticker(from: parameters)
+      guard let stickerData = stickerImage.pngData() else {
+        throw StickerMakerError.imageRenderingFailed
       }
+      return stickerData
     }
   }
 
@@ -161,31 +135,20 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     result: @escaping FlutterResult
   ) {
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      guard let self = self else {
-        DispatchQueue.main.async {
-          result(
-            FlutterError(
-              code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
-        }
+      guard let self else {
+        Self.finishDueToDeallocation(result)
         return
       }
 
       do {
         let preprocessedImage = try self.imageProcessor.preprocess(parameters.image)
-
         self.presentStickerAnimation(
           originalImage: preprocessedImage,
           parameters: parameters,
           result: result
         )
       } catch {
-        os_log(
-          "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
-        DispatchQueue.main.async {
-          result(
-            FlutterError(
-              code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
-        }
+        self.finishWithProcessingError(error, result: result)
       }
     }
   }
@@ -214,6 +177,45 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
       preprocessedImage: preprocessedImage,
       maskImage: maskImage)
     return addBorderIfNeeded(to: maskedImage, mask: maskImage, parameters: parameters)
+  }
+
+  private func performStickerWork(
+    result: @escaping FlutterResult,
+    work: @escaping (FlutterStickerMakerPlugin) throws -> Data
+  ) {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else {
+        Self.finishDueToDeallocation(result)
+        return
+      }
+
+      do {
+        let data = try work(self)
+        DispatchQueue.main.async {
+          result(FlutterStandardTypedData(bytes: data))
+        }
+      } catch {
+        self.finishWithProcessingError(error, result: result)
+      }
+    }
+  }
+
+  private func finishWithProcessingError(_ error: Error, result: @escaping FlutterResult) {
+    os_log(
+      "Sticker creation failed: %@", log: logger, type: .error, error.localizedDescription)
+    DispatchQueue.main.async {
+      result(
+        FlutterError(
+          code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
+    }
+  }
+
+  private static func finishDueToDeallocation(_ result: @escaping FlutterResult) {
+    DispatchQueue.main.async {
+      result(
+        FlutterError(
+          code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
+    }
   }
 
   internal func buildMaskedImage(

@@ -97,19 +97,7 @@ struct StickerAnimateView: View {
 	}
 
 	private func startStickerCreation() {
-		let setStickerImage: (UIImage?) -> Void = { [self] image in
-			Task { @MainActor in
-				self.stickerImage = image
-			}
-		}
-		
-		let triggerAnimation: () -> Void = { [self] in
-			Task { @MainActor in
-				self.runStickerAnimation()
-			}
-		}
-		
-		DispatchQueue.global(qos: .userInitiated).async { [originalImage, parameters, plugin, onComplete, onError] in
+		DispatchQueue.global(qos: .userInitiated).async { [self, originalImage, parameters, plugin, onComplete, onError] in
 			autoreleasepool {
 				do {
 					let maskImage = try plugin.generateMask(for: originalImage)
@@ -120,10 +108,11 @@ struct StickerAnimateView: View {
 						from: maskedCIImage,
 						orientation: parameters.image.imageOrientation)
 
-					setStickerImage(preview)
-					triggerAnimation()
+					DispatchQueue.main.async {
+						self.stickerImage = preview
+						self.runStickerAnimation()
+					}
 
-					// Create final sticker with border in separate autoreleasepool
 					let stickerData: Data = try autoreleasepool {
 						let finalCIImage = plugin.addBorderIfNeeded(
 							to: maskedCIImage,
@@ -139,13 +128,12 @@ struct StickerAnimateView: View {
 						return data
 					}
 
-					// Wait for animation to complete before returning result
 					DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
-						onComplete(stickerData)
+						self.onComplete(stickerData)
 					}
 				} catch {
 					DispatchQueue.main.async {
-						onError(error)
+						self.onError(error)
 					}
 				}
 			}
