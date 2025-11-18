@@ -56,8 +56,14 @@ struct StickerAnimateView: View {
 			.opacity(stickerImage == nil ? 1 : 0)
 			.animation(stickerAnimation, value: stickerImage)
 			.overlay {
-				SpoilerView(isOn: true, color: spoilerColor, speckleType: parameters.speckleType)
-					.opacity(spoilerViewOpacity)
+				Group {
+					if parameters.speckleType == .flutteroverlay {
+						AnimatedSpeckleOverlay(color: spoilerColor, speckleType: parameters.speckleType)
+					} else {
+						SpoilerView(isOn: true, color: spoilerColor, speckleType: parameters.speckleType)
+					}
+				}
+				.opacity(spoilerViewOpacity)
 			}
 	}
 
@@ -283,6 +289,122 @@ struct SpoilerView: UIViewRepresentable {
 			preconditionFailure("Failed to render fallback speckle image")
 		}
 		return cgImage
+	}
+}
+
+@available(iOS 17.0, *)
+struct AnimatedSpeckleOverlay: View {
+	var color: UIColor
+	var speckleType: SpeckleType
+
+	private let animationDuration: TimeInterval = 1.4
+
+	var body: some View {
+		TimelineView(.animation) { context in
+			let style = SpeckleStyleConfig.from(type: speckleType)
+			let progress = normalizedPhase(for: context.date)
+			SpeckleGradientLayer(
+				baseColor: Color(uiColor: color),
+				style: style,
+				phase: progress)
+		}
+	}
+
+	private func normalizedPhase(for date: Date) -> CGFloat {
+		let elapsed = date.timeIntervalSinceReferenceDate
+		let cycle = animationDuration
+		guard cycle > 0 else { return 0 }
+		let progress = (elapsed.truncatingRemainder(dividingBy: cycle)) / cycle
+		return CGFloat(progress)
+	}
+}
+
+@available(iOS 17.0, *)
+private struct SpeckleGradientLayer: View {
+	let baseColor: Color
+	let style: SpeckleStyleConfig
+	let phase: CGFloat
+
+	var body: some View {
+		GeometryReader { proxy in
+			let primaryCenter = animatedPoint(offset: 0)
+			let secondaryCenter = animatedPoint(offset: 0.35)
+			let extent = max(proxy.size.width, proxy.size.height)
+
+			ZStack {
+				Rectangle()
+					.fill(
+						RadialGradient(
+							gradient: Gradient(colors: [
+								baseColor.opacity(style.primaryOpacity),
+								baseColor.opacity(style.midOpacity),
+								Color.clear
+							]),
+							center: primaryCenter,
+							startRadius: 0,
+							endRadius: extent * 0.75))
+
+				Rectangle()
+					.fill(
+						LinearGradient(
+							gradient: Gradient(colors: [
+								baseColor.opacity(style.secondaryOpacity),
+								Color.clear
+							]),
+							startPoint: secondaryCenter,
+							endPoint: UnitPoint(x: 1 - secondaryCenter.x, y: 1 - secondaryCenter.y)))
+			}
+			.compositingGroup()
+			.blur(radius: style.blurSigma)
+		}
+	}
+
+	private func animatedPoint(offset: CGFloat) -> UnitPoint {
+		let angle = 2 * CGFloat.pi * (phase + offset)
+		let driftedX = 0.5 + cos(angle) * style.drift * 0.5
+		let driftedY = 0.5 + sin(angle) * style.drift * 0.5
+		return UnitPoint(x: driftedX, y: driftedY)
+	}
+}
+
+private struct SpeckleStyleConfig {
+	let drift: CGFloat
+	let primaryOpacity: CGFloat
+	let midOpacity: CGFloat
+	let secondaryOpacity: CGFloat
+	let blurSigma: CGFloat
+
+	static func from(type: SpeckleType) -> SpeckleStyleConfig {
+		switch type {
+		case .sparkle:
+			return SpeckleStyleConfig(
+				drift: 0.8,
+				primaryOpacity: 0.75,
+				midOpacity: 0.25,
+				secondaryOpacity: 0.35,
+				blurSigma: 10)
+		case .burst:
+			return SpeckleStyleConfig(
+				drift: 0.95,
+				primaryOpacity: 0.85,
+				midOpacity: 0.3,
+				secondaryOpacity: 0.45,
+				blurSigma: 12)
+		case .classic:
+			return SpeckleStyleConfig(
+				drift: 0.7,
+				primaryOpacity: 0.8,
+				midOpacity: 0.28,
+				secondaryOpacity: 0.4,
+				blurSigma: 9)
+		case .flutteroverlay:
+			return SpeckleStyleConfig(
+				drift: 0.88,
+				primaryOpacity: 0.82,
+				midOpacity: 0.32,
+				secondaryOpacity: 0.42,
+				blurSigma: 11)
+		}
 	}
 }
 

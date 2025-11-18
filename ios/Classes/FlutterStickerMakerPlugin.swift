@@ -346,6 +346,7 @@ internal enum SpeckleType: String {
   case classic
   case sparkle
   case burst
+  case flutteroverlay
 
   struct EmitterSettings {
     let assetName: String?
@@ -400,6 +401,16 @@ internal enum SpeckleType: String {
         velocity: 55,
         lifetime: 0.8,
         alphaRange: 0.8,
+        emissionRange: .pi * 2)
+    case .flutteroverlay:
+      return EmitterSettings(
+        assetName: nil,
+        fallbackShape: .stripe,
+        scale: 0.45,
+        birthRate: 2000,
+        velocity: 25,
+        lifetime: 1.2,
+        alphaRange: 0.7,
         emissionRange: .pi * 2)
     }
   }

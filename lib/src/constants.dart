@@ -1,8 +1,10 @@
 /// Styles for the spoiler speckle emitter (iOS visual effect).
 enum SpeckleType {
+  /// the 'classic', 'sparkle' and 'burst' are only supported natively on iOS 17+
   classic('Classic'),
   sparkle('Sparkle'),
-  burst('Burst');
+  burst('Burst'),
+  flutterOverlay('FlutterOverlay');
 
   final String label;
   const SpeckleType(this.label);

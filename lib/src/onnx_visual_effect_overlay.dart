@@ -471,6 +471,14 @@ class _SpeckleStyle {
           secondaryOpacity: 0.4,
           blurSigma: 9,
         );
+      case SpeckleType.flutterOverlay:
+        return const _SpeckleStyle(
+          drift: 0.88,
+          primaryOpacity: 0.82,
+          midOpacity: 0.32,
+          secondaryOpacity: 0.42,
+          blurSigma: 11,
+        );
     }
   }
 }
