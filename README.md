@@ -53,17 +53,18 @@ final stickerWithBorder = await FlutterStickerMaker.makeSticker(
   borderWidth: 15.0,      // 15 pixel border width
 );
 
-// With visual effect (native on iOS 17+, Flutter overlay on ONNX platforms)
+// With visual effect (native on iOS 17+)
 final stickerWithEffect = await FlutterStickerMaker.makeSticker(
   imageBytes,
   showVisualEffect: true, // Shows animated preview overlay
+  speckleType: SpeckleType.classic, // Choose overlay style (classic, sparkle, burst, flutterOverlay)
 );
 
-// Force the Flutter overlay gradient style regardless of platform
+// With Flutter overlay style on ONNX platforms (Android & older iOS)
 final flutterOverlayPreview = await FlutterStickerMaker.makeSticker(
   imageBytes,
   showVisualEffect: true,
-  speckleType: SpeckleType.flutterOverlay,
+  speckleType: SpeckleType.flutterOverlay, // Flutter overlay style (ONNX platforms)
 );
 ```
 
@@ -122,4 +123,6 @@ Add to ios/Runner/Info.plist:
 
 ## Thanks
 
-[image_background_remover](https://github.com/Netesh5/image_background_remover)
+Background removal: [image_background_remover](https://github.com/Netesh5/image_background_remover)
+
+SpoilerView effect: [StickerViewExample](https://github.com/artemnovichkov/StickerViewExample)
