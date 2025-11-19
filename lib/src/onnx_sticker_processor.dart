@@ -125,7 +125,10 @@ class OnnxStickerProcessor {
       /// Initialize native mask processor
       final nativeAvailable = NativeMaskProcessor.initialize();
       if (kDebugMode) {
-        dev.log('Native mask processor available: $nativeAvailable');
+        dev.log(
+          'Native mask processor available: $nativeAvailable',
+          name: "FlutterStickerMaker",
+        );
       }
 
       _isInitialized = true;
@@ -142,7 +145,7 @@ class OnnxStickerProcessor {
       /// Create the ONNX session.
       await _createSession();
     } catch (e) {
-      dev.log(e.toString());
+      dev.log(e.toString(), name: "FlutterStickerMaker");
     }
   }
 
@@ -566,12 +569,15 @@ class OnnxStickerProcessor {
 
         if (nativeResult == MaskProcessorResult.success) {
           if (kDebugMode) {
-            dev.log('Used native mask processing');
+            dev.log('Used native mask processing', name: "FlutterStickerMaker");
           }
         } else {
           // Fall back to Dart implementation
           if (kDebugMode) {
-            dev.log('Native mask processing failed, using Dart fallback');
+            dev.log(
+              'Native mask processing failed, using Dart fallback',
+              name: "FlutterStickerMaker",
+            );
           }
           await _applyStickerEffectsDart(
             result,
@@ -696,12 +702,15 @@ class OnnxStickerProcessor {
 
       if (nativeResult == MaskProcessorResult.success) {
         if (kDebugMode) {
-          dev.log('Used native mask smoothing');
+          dev.log('Used native mask smoothing', name: "FlutterStickerMaker");
         }
         return smoothed;
       } else {
         if (kDebugMode) {
-          dev.log('Native mask smoothing failed, using Dart fallback');
+          dev.log(
+            'Native mask smoothing failed, using Dart fallback',
+            name: "FlutterStickerMaker",
+          );
         }
       }
     }
@@ -790,12 +799,15 @@ class OnnxStickerProcessor {
 
       if (nativeResult == MaskProcessorResult.success) {
         if (kDebugMode) {
-          dev.log('Used native mask expansion');
+          dev.log('Used native mask expansion', name: "FlutterStickerMaker");
         }
         return expanded;
       } else {
         if (kDebugMode) {
-          dev.log('Native mask expansion failed, using Dart fallback');
+          dev.log(
+            'Native mask expansion failed, using Dart fallback',
+            name: "FlutterStickerMaker",
+          );
         }
       }
     }
