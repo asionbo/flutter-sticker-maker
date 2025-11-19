@@ -1,37 +1,40 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_sticker_maker/src/native_mask_processor.dart';
-import 'dart:typed_data';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
-/// Performance benchmark tests for native mask processing
+import 'package:flutter_sticker_maker/src/native_mask_processor.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+
+/// Integration-flavored copy of the performance benchmarks so we can run them
+/// on physical devices/emulators and measure the real native code paths.
 void main() {
-  group('Performance Benchmarks', () {
-    const testSizes = [
-      [64, 64], // Small
-      [256, 256], // Medium
-      [512, 512], // Large
-      [1024, 1024], // Very Large
-    ];
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-    setUpAll(() {
-      // Initialize native processor
-      NativeMaskProcessor.initialize();
-    });
+  const testSizes = <List<int>>[
+    [64, 64],
+    [256, 256],
+    [512, 512],
+    [1024, 1024],
+  ];
 
+  setUpAll(() {
+    NativeMaskProcessor.initialize();
+  });
+
+  group('Native mask processor benchmarks (integration)', () {
     for (final size in testSizes) {
       final width = size[0];
       final height = size[1];
       final pixelCount = width * height;
 
-      group('${width}x${height} Image', () {
+      group('${width}x$height image', () {
         late List<double> testMask;
         late Uint8List testPixels;
 
         setUp(() {
-          // Create realistic test data
-          testMask = List<double>.generate(pixelCount, (i) {
-            final x = i % width;
-            final y = i ~/ width;
+          testMask = List<double>.generate(pixelCount, (index) {
+            final x = index % width;
+            final y = index ~/ width;
             final centerX = width / 2;
             final centerY = height / 2;
             final distance = math.sqrt(
@@ -42,20 +45,18 @@ void main() {
           });
 
           testPixels = Uint8List(pixelCount * 4);
-          for (int i = 0; i < pixelCount * 4; i++) {
+          for (var i = 0; i < pixelCount * 4; i++) {
             testPixels[i] = (i % 256);
           }
         });
 
-        test('Mask Smoothing Performance', () async {
+        testWidgets('Mask smoothing performance', (tester) async {
           if (!NativeMaskProcessor.isAvailable) {
             print('Native processor not available, skipping performance test');
             return;
           }
 
           const kernelSize = 5;
-
-          // Measure native performance
           final nativeOutput = List<double>.filled(pixelCount, 0.0);
           final nativeStopwatch = Stopwatch()..start();
 
@@ -68,20 +69,15 @@ void main() {
           );
 
           nativeStopwatch.stop();
-
           expect(nativeResult, equals(MaskProcessorResult.success));
-
-          // Print performance results
           print(
-            'Native smooth mask (${width}x${height}): ${nativeStopwatch.elapsedMicroseconds}μs',
+            'Native smooth mask (${width}x$height): ${nativeStopwatch.elapsedMicroseconds}μs',
           );
 
-          // For comparison, estimate Dart performance based on algorithmic complexity
-          // Dart implementation has O(width * height * kernelSize²) complexity
           final estimatedDartMicroseconds =
               (pixelCount * kernelSize * kernelSize * 0.01).round();
           print(
-            'Estimated Dart smooth mask (${width}x${height}): ${estimatedDartMicroseconds}μs',
+            'Estimated Dart smooth mask (${width}x$height): $estimatedDartMicrosecondsμs',
           );
 
           if (estimatedDartMicroseconds > 0) {
@@ -91,15 +87,13 @@ void main() {
           }
         });
 
-        test('Mask Expansion Performance', () async {
+        testWidgets('Mask expansion performance', (tester) async {
           if (!NativeMaskProcessor.isAvailable) {
             print('Native processor not available, skipping performance test');
             return;
           }
 
           const borderWidth = 8;
-
-          // Measure native performance
           final nativeOutput = List<double>.filled(pixelCount, 0.0);
           final nativeStopwatch = Stopwatch()..start();
 
@@ -112,19 +106,15 @@ void main() {
           );
 
           nativeStopwatch.stop();
-
           expect(nativeResult, equals(MaskProcessorResult.success));
-
-          // Print performance results
           print(
-            'Native expand mask (${width}x${height}): ${nativeStopwatch.elapsedMicroseconds}μs',
+            'Native expand mask (${width}x$height): ${nativeStopwatch.elapsedMicroseconds}μs',
           );
 
-          // Estimate Dart performance: O(width * height * borderWidth²)
           final estimatedDartMicroseconds =
               (pixelCount * borderWidth * borderWidth * 0.005).round();
           print(
-            'Estimated Dart expand mask (${width}x${height}): ${estimatedDartMicroseconds}μs',
+            'Estimated Dart expand mask (${width}x$height): $estimatedDartMicrosecondsμs',
           );
 
           if (estimatedDartMicroseconds > 0) {
@@ -134,39 +124,33 @@ void main() {
           }
         });
 
-        test('Sticker Mask Application Performance', () async {
+        testWidgets('Sticker mask application performance', (tester) async {
           if (!NativeMaskProcessor.isAvailable) {
             print('Native processor not available, skipping performance test');
             return;
           }
 
-          // Measure native performance
           final nativeStopwatch = Stopwatch()..start();
-
           final nativeResult = NativeMaskProcessor.applyStickerMask(
             testPixels,
             testMask,
             width,
             height,
-            true, // Add border
-            [255, 255, 255], // White border
-            4, // Border width
-            null, // No expanded mask for this test
+            true,
+            const [255, 255, 255],
+            4,
+            null,
           );
 
           nativeStopwatch.stop();
-
           expect(nativeResult, equals(MaskProcessorResult.success));
-
-          // Print performance results
           print(
-            'Native apply mask (${width}x${height}): ${nativeStopwatch.elapsedMicroseconds}μs',
+            'Native apply mask (${width}x$height): ${nativeStopwatch.elapsedMicroseconds}μs',
           );
 
-          // Estimate Dart performance: O(width * height)
           final estimatedDartMicroseconds = (pixelCount * 0.02).round();
           print(
-            'Estimated Dart apply mask (${width}x${height}): ${estimatedDartMicroseconds}μs',
+            'Estimated Dart apply mask (${width}x$height): $estimatedDartMicrosecondsμs',
           );
 
           if (estimatedDartMicroseconds > 0) {
@@ -178,7 +162,7 @@ void main() {
       });
     }
 
-    test('Memory Usage Test', () {
+    testWidgets('Memory usage sanity check', (tester) async {
       if (!NativeMaskProcessor.isAvailable) {
         print('Native processor not available, skipping memory test');
         return;
@@ -188,15 +172,12 @@ void main() {
       const height = 512;
       const pixelCount = width * height;
 
-      // Create test data
       final mask = List<double>.filled(pixelCount, 0.5);
       final output = List<double>.filled(pixelCount, 0.0);
       final pixels = Uint8List(pixelCount * 4);
 
-      // Run multiple operations to test for memory leaks
       const iterations = 100;
-
-      for (int i = 0; i < iterations; i++) {
+      for (var i = 0; i < iterations; i++) {
         final result1 = NativeMaskProcessor.smoothMask(
           mask,
           output,
@@ -221,7 +202,7 @@ void main() {
           width,
           height,
           false,
-          [255, 255, 255],
+          const [255, 255, 255],
           0,
           null,
         );

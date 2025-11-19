@@ -49,3 +49,4 @@ android/.cxx/
 
 # Misc
 *.log
+/scripts/*.py

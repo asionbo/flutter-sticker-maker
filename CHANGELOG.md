@@ -1,3 +1,8 @@
+## 0.1.8
+* Added visual effect feature with `showVisualEffect` parameter. Flutter overlay on ONNX platforms (Android & older iOS). Native SwiftUI overlay on iOS 17+.
+* Shows animated overlay with blur effect and mask highlighting during processing.
+* Uses SwiftUI and iOS Vision API for smooth animations.
+
 ## 0.1.7
 * Minimal iOS version raised to 16.0. Minimal Android SDK raised to 24.
 * Support 16 KB page sizes for Android X64 devices.

@@ -1,3 +1,15 @@
+/// Styles for the spoiler speckle emitter (iOS visual effect).
+enum SpeckleType {
+  /// the 'classic', 'sparkle' and 'burst' are only supported natively on iOS 17+
+  classic('Classic'),
+  sparkle('Sparkle'),
+  burst('Burst'),
+  flutterOverlay('FlutterOverlay');
+
+  final String label;
+  const SpeckleType(this.label);
+}
+
 /// Configuration constants for the Flutter Sticker Maker plugin.
 class StickerDefaults {
   /// Default border color in hex format
@@ -8,6 +20,12 @@ class StickerDefaults {
 
   /// Default setting for adding border
   static const bool defaultAddBorder = true;
+
+  /// Default setting for showing visual effect overlays
+  static const bool defaultShowVisualEffect = false;
+
+  /// Default speckle style for the visual effect
+  static const SpeckleType defaultSpeckleType = SpeckleType.classic;
 
   /// Maximum recommended image size in pixels (width or height)
   static const int maxImageSize = 4096;

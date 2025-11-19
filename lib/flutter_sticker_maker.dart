@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'src/constants.dart';
 import 'src/exceptions.dart';
 import 'src/onnx_sticker_processor.dart';
+import 'src/onnx_visual_effect_overlay.dart';
 
 import 'dart:developer' as dev;
 
@@ -56,6 +57,7 @@ class FlutterStickerMaker {
   /// - [addBorder]: Whether to add a border around the subject
   /// - [borderColor]: Hex color string (#RRGGBB or RRGGBB format)
   /// - [borderWidth]: Border thickness in pixels (0.0 to 50.0)
+  /// - [showVisualEffect]: Whether to show visual effect overlay (native on iOS 17+, Flutter overlay on ONNX platforms)
   ///
   /// **Returns:**
   /// - [Uint8List?]: PNG image data with transparent background, or null if processing failed
@@ -73,6 +75,7 @@ class FlutterStickerMaker {
   ///   addBorder: true,
   ///   borderColor: '#FFFFFF',
   ///   borderWidth: 8.0,
+  ///   showVisualEffect: true, // iOS 17+ native / ONNX overlay
   /// );
   /// ```
   static Future<Uint8List?> makeSticker(
@@ -80,6 +83,8 @@ class FlutterStickerMaker {
     bool addBorder = StickerDefaults.defaultAddBorder,
     String borderColor = StickerDefaults.defaultBorderColor,
     double borderWidth = StickerDefaults.defaultBorderWidth,
+    bool showVisualEffect = StickerDefaults.defaultShowVisualEffect,
+    SpeckleType speckleType = StickerDefaults.defaultSpeckleType,
   }) async {
     // Validate input parameters
     _validateInput(imageBytes, borderColor, borderWidth);
@@ -89,12 +94,23 @@ class FlutterStickerMaker {
       _isUsingOnnx = await _shouldUseOnnx();
       if (_isUsingOnnx) {
         // Use ONNX implementation for Android and iOS < 17
-        return await OnnxStickerProcessor.makeSticker(
-          imageBytes,
-          addBorder: addBorder,
-          borderColor: borderColor,
-          borderWidth: borderWidth,
-        );
+        final process =
+            () => OnnxStickerProcessor.makeSticker(
+              imageBytes,
+              addBorder: addBorder,
+              borderColor: borderColor,
+              borderWidth: borderWidth,
+            );
+
+        if (showVisualEffect) {
+          return await OnnxVisualEffectOverlay.run(
+            imageBytes: imageBytes,
+            speckleType: speckleType,
+            process: process,
+          );
+        }
+
+        return await process();
       } else {
         // Use platform-specific implementation (iOS 17+ only)
         final result = await _channel
@@ -103,6 +119,8 @@ class FlutterStickerMaker {
               'addBorder': addBorder,
               'borderColor': borderColor,
               'borderWidth': borderWidth,
+              'showVisualEffect': showVisualEffect,
+              'speckleType': speckleType.name,
             })
             .timeout(
               Duration(seconds: StickerDefaults.processingTimeoutSeconds),

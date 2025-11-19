@@ -3,6 +3,9 @@ import Flutter
 import UIKit
 import Vision
 import os.log
+#if canImport(SwiftUI)
+import SwiftUI
+#endif
 
 // MARK: - Configuration
 private struct StickerMakerConfig {
@@ -17,7 +20,7 @@ private struct StickerMakerConfig {
 }
 
 // MARK: - Error Types
-enum StickerMakerError: Error, LocalizedError {
+internal enum StickerMakerError: Error, LocalizedError {
   case invalidImageData
   case imagePreprocessingFailed
   case maskGenerationFailed
@@ -39,6 +42,7 @@ enum StickerMakerError: Error, LocalizedError {
 public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
   private let logger = OSLog(
     subsystem: Bundle.main.bundleIdentifier ?? "StickerMaker", category: "Plugin")
+  private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
   private let imageProcessor = ImageProcessor()
   private let borderRenderer = BorderRenderer()
 
@@ -92,79 +96,162 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     let borderColor = ColorParser.parse(args["borderColor"] as? String)
     let borderWidth = CGFloat(
       args["borderWidth"] as? Double ?? StickerMakerConfig.defaultBorderWidth)
+    let showVisualEffect = args["showVisualEffect"] as? Bool ?? false
+    let speckleRawValue = args["speckleType"] as? String
+    let speckleType = SpeckleType.from(rawValue: speckleRawValue)
 
     return StickerParameters(
       image: uiImage,
       addBorder: addBorder,
       borderColor: borderColor,
-      borderWidth: max(0, borderWidth)  // Ensure non-negative
+      borderWidth: max(0, borderWidth),  // Ensure non-negative
+      showVisualEffect: showVisualEffect,
+      speckleType: speckleType
     )
   }
 
   private func processSticker(with parameters: StickerParameters, result: @escaping FlutterResult) {
+    if #available(iOS 17.0, *), parameters.showVisualEffect {
+      processStickerWithVisualEffect(with: parameters, result: result)
+      return
+    }
+
+    processStickerWithoutVisualEffect(with: parameters, result: result)
+  }
+
+  private func processStickerWithoutVisualEffect(
+    with parameters: StickerParameters,
+    result: @escaping FlutterResult
+  ) {
+    performStickerWork(result: result) { plugin in
+      let stickerImage = try plugin.createSticker(from: parameters)
+      guard let stickerData = stickerImage.pngData() else {
+        throw StickerMakerError.imageRenderingFailed
+      }
+      return stickerData
+    }
+  }
+
+  @available(iOS 17.0, *)
+  private func processStickerWithVisualEffect(
+    with parameters: StickerParameters,
+    result: @escaping FlutterResult
+  ) {
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      guard let self = self else {
-        DispatchQueue.main.async {
-          result(
-            FlutterError(
-              code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
-        }
+      guard let self else {
+        Self.finishDueToDeallocation(result)
         return
       }
 
       do {
-        let stickerImage = try self.createSticker(from: parameters)
-        guard let stickerData = stickerImage.pngData() else {
-          throw StickerMakerError.imageRenderingFailed
-        }
-
-        DispatchQueue.main.async {
-          result(FlutterStandardTypedData(bytes: stickerData))
-        }
+        let preprocessedImage = try self.imageProcessor.preprocess(parameters.image)
+        self.presentStickerAnimation(
+          originalImage: preprocessedImage,
+          parameters: parameters,
+          result: result
+        )
       } catch {
-        os_log(
-          "Sticker creation failed: %@", log: self.logger, type: .error, error.localizedDescription)
-        DispatchQueue.main.async {
-          result(
-            FlutterError(
-              code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
-        }
+        self.finishWithProcessingError(error, result: result)
       }
     }
   }
 
   private func createSticker(from parameters: StickerParameters) throws -> UIImage {
-    // Step 1: Preprocess image
     let preprocessedImage = try imageProcessor.preprocess(parameters.image)
-
-    // Step 2: Generate mask (only available on iOS 17+)
     let maskImage: CIImage
     if #available(iOS 17.0, *) {
-      let maskGenerator = MaskGenerator()
-      maskImage = try maskGenerator.generateMask(for: preprocessedImage)
+      maskImage = try generateMask(for: preprocessedImage)
     } else {
       throw StickerMakerError.maskGenerationFailed
     }
-
-    // Step 3: Apply mask and optional border
-    // Apply orientation transform to CIImage to match original orientation
-    let ciImage = CIImage(image: preprocessedImage) ?? CIImage()
-      let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(preprocessedImage.imageOrientation.exifOrientation))
-    let maskedImage = try applyMask(maskImage, to: orientedCIImage)
-
-    let finalImage =
-      parameters.addBorder
-      ? borderRenderer.addBorder(
-        to: maskedImage, mask: maskImage, color: parameters.borderColor,
-        width: parameters.borderWidth) : maskedImage
-
-    // Step 4: Render final image with original scale
-    return try renderImage(finalImage, originalImage: parameters.image)
+    let finalCIImage = try buildFinalImage(
+      parameters: parameters,
+      preprocessedImage: preprocessedImage,
+      maskImage: maskImage)
+    return try renderImage(finalCIImage, originalImage: parameters.image)
   }
 
-  private func renderImage(_ ciImage: CIImage, originalImage: UIImage) throws -> UIImage {
-    let context = CIContext(options: [.useSoftwareRenderer: false])
-    guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+  private func buildFinalImage(
+    parameters: StickerParameters,
+    preprocessedImage: UIImage,
+    maskImage: CIImage
+  ) throws -> CIImage {
+    let maskedImage = try buildMaskedImage(
+      preprocessedImage: preprocessedImage,
+      maskImage: maskImage)
+    return addBorderIfNeeded(to: maskedImage, mask: maskImage, parameters: parameters)
+  }
+
+  private func performStickerWork(
+    result: @escaping FlutterResult,
+    work: @escaping (FlutterStickerMakerPlugin) throws -> Data
+  ) {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self else {
+        Self.finishDueToDeallocation(result)
+        return
+      }
+
+      do {
+        let data = try work(self)
+        DispatchQueue.main.async {
+          result(FlutterStandardTypedData(bytes: data))
+        }
+      } catch {
+        self.finishWithProcessingError(error, result: result)
+      }
+    }
+  }
+
+  private func finishWithProcessingError(_ error: Error, result: @escaping FlutterResult) {
+    os_log(
+      "Sticker creation failed: %@", log: logger, type: .error, error.localizedDescription)
+    DispatchQueue.main.async {
+      result(
+        FlutterError(
+          code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
+    }
+  }
+
+  private static func finishDueToDeallocation(_ result: @escaping FlutterResult) {
+    DispatchQueue.main.async {
+      result(
+        FlutterError(
+          code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
+    }
+  }
+
+  internal func buildMaskedImage(
+    preprocessedImage: UIImage,
+    maskImage: CIImage
+  ) throws -> CIImage {
+    let ciImage = CIImage(image: preprocessedImage) ?? CIImage()
+    let orientedCIImage = ciImage.oriented(
+      forExifOrientation: Int32(preprocessedImage.imageOrientation.exifOrientation))
+    return try applyMask(maskImage, to: orientedCIImage)
+  }
+
+  internal func addBorderIfNeeded(
+    to image: CIImage,
+    mask: CIImage,
+    parameters: StickerParameters
+  ) -> CIImage {
+    guard parameters.addBorder else { return image }
+    return borderRenderer.addBorder(
+      to: image,
+      mask: mask,
+      color: parameters.borderColor,
+      width: parameters.borderWidth)
+  }
+
+  @available(iOS 17.0, *)
+  internal func generateMask(for image: UIImage) throws -> CIImage {
+    let maskGenerator = MaskGenerator()
+    return try maskGenerator.generateMask(for: image)
+  }
+
+  internal func renderImage(_ ciImage: CIImage, originalImage: UIImage) throws -> UIImage {
+    guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
       throw StickerMakerError.imageRenderingFailed
     }
     return UIImage(cgImage: cgImage, scale: 1.0, orientation: originalImage.imageOrientation)
@@ -182,32 +269,172 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
     return result
   }
 
-    private func renderImage(_ ciImage: CIImage, originalOrientation: UIImage.Orientation) throws -> UIImage {
-    let context = CIContext(options: [.useSoftwareRenderer: false])
-    guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+  internal func uiImage(
+    from ciImage: CIImage,
+    scale: CGFloat = UIScreen.main.scale,
+    orientation: UIImage.Orientation = .up
+  ) throws -> UIImage {
+    guard let cg = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
       throw StickerMakerError.imageRenderingFailed
     }
-        return UIImage(cgImage: cgImage,scale: 1.0 , orientation: originalOrientation)
+    return UIImage(cgImage: cg, scale: scale, orientation: orientation)
+  }
+
+  @available(iOS 17.0, *)
+  private func presentStickerAnimation(
+    originalImage: UIImage,
+    parameters: StickerParameters,
+    result: @escaping FlutterResult
+  ) {
+#if canImport(SwiftUI)
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else {
+        result(
+          FlutterError(
+            code: "INTERNAL_ERROR", message: "Plugin instance deallocated", details: nil))
+        return
+      }
+
+      guard
+        let windowScene = UIApplication.shared.connectedScenes
+          .compactMap({ $0 as? UIWindowScene })
+          .first(where: { $0.activationState == .foregroundActive })
+          ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+        let presentingWindow = windowScene.windows.first(where: { $0.isKeyWindow })
+          ?? windowScene.windows.first,
+        let rootViewController = presentingWindow.rootViewController
+      else {
+        result(
+          FlutterError(
+            code: "INTERNAL_ERROR", message: "Failed to find window", details: nil))
+        return
+      }
+
+      let hostingController = UIHostingController(
+        rootView: StickerAnimateView(
+          originalImage: originalImage,
+          parameters: parameters,
+          plugin: self,
+          onComplete: { [weak rootViewController] stickerData in
+            rootViewController?.presentedViewController?.dismiss(animated: false) {
+              result(FlutterStandardTypedData(bytes: stickerData))
+            }
+          },
+          onError: { [weak rootViewController] error in
+            rootViewController?.presentedViewController?.dismiss(animated: false) {
+              result(
+                FlutterError(
+                  code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
+            }
+          }
+        ))
+      hostingController.view.backgroundColor = UIColor.clear
+      hostingController.modalPresentationStyle = .overFullScreen
+
+      rootViewController.present(hostingController, animated: false)
+    }
+#else
+    result(
+      FlutterError(
+        code: "UNSUPPORTED", message: "SwiftUI not available", details: nil))
+#endif
   }
 }
 
 // MARK: - Supporting Types
-private struct StickerParameters {
+internal enum SpeckleType: String {
+  case classic
+  case sparkle
+  case burst
+  case flutteroverlay
+
+  struct EmitterSettings {
+    let assetName: String?
+    let fallbackShape: FallbackShape
+    let scale: CGFloat
+    let birthRate: Float
+    let velocity: CGFloat
+    let lifetime: Float
+    let alphaRange: Float
+    let emissionRange: CGFloat
+  }
+
+  enum FallbackShape {
+    case circle
+    case diamond
+    case stripe
+  }
+
+  static func from(rawValue: String?) -> SpeckleType {
+    guard let raw = rawValue?.lowercased() else { return .classic }
+    return SpeckleType(rawValue: raw) ?? .classic
+  }
+
+  var emitterSettings: EmitterSettings {
+    switch self {
+    case .classic:
+      return EmitterSettings(
+        assetName: "textSpeckle_Normal",
+        fallbackShape: .circle,
+        scale: 0.5,
+        birthRate: 4000,
+        velocity: 20,
+        lifetime: 1.0,
+        alphaRange: 1,
+        emissionRange: .pi * 2)
+    case .sparkle:
+      return EmitterSettings(
+        assetName: nil,
+        fallbackShape: .diamond,
+        scale: 0.35,
+        birthRate: 2800,
+        velocity: 35,
+        lifetime: 1.4,
+        alphaRange: 0.6,
+        emissionRange: .pi * 2)
+    case .burst:
+      return EmitterSettings(
+        assetName: nil,
+        fallbackShape: .circle,
+        scale: 0.65,
+        birthRate: 1800,
+        velocity: 55,
+        lifetime: 0.8,
+        alphaRange: 0.8,
+        emissionRange: .pi * 2)
+    case .flutteroverlay:
+      return EmitterSettings(
+        assetName: nil,
+        fallbackShape: .stripe,
+        scale: 0.45,
+        birthRate: 2000,
+        velocity: 25,
+        lifetime: 1.2,
+        alphaRange: 0.7,
+        emissionRange: .pi * 2)
+    }
+  }
+}
+
+internal struct StickerParameters {
   let image: UIImage
   let addBorder: Bool
   let borderColor: CIColor
   let borderWidth: CGFloat
+  let showVisualEffect: Bool
+  let speckleType: SpeckleType
 }
 
 // MARK: - Image Processor
 private class ImageProcessor {
+  private let context = CIContext(options: [.useSoftwareRenderer: false, .priorityRequestLow: true])
+  
   func preprocess(_ image: UIImage) throws -> UIImage {
     guard let cgImage = image.cgImage else {
       throw StickerMakerError.unsupportedImageFormat
     }
 
     let ciImage = CIImage(cgImage: cgImage)
-    let context = CIContext()
 
     // Apply noise reduction
     let noiseFilter = CIFilter.noiseReduction()
@@ -235,6 +462,8 @@ private class ImageProcessor {
 // MARK: - Mask Generator
 @available(iOS 17.0, *)
 private class MaskGenerator {
+  private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+  
   func generateMask(for image: UIImage) throws -> CIImage {
     guard let inputCIImage = CIImage(image: image) else {
       throw StickerMakerError.invalidImageData
@@ -244,7 +473,7 @@ private class MaskGenerator {
       ciImage: inputCIImage,
       options: [
         VNImageOption.cameraIntrinsics: NSNull(),
-        VNImageOption.ciContext: CIContext(options: [.useSoftwareRenderer: false]),
+        VNImageOption.ciContext: ciContext,
       ])
 
     let request = VNGenerateForegroundInstanceMaskRequest()

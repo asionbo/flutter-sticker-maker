@@ -59,6 +59,8 @@ class _StickerPageState extends State<StickerPage> {
   bool _addBorder = StickerDefaults.defaultAddBorder;
   String _borderColor = StickerDefaults.defaultBorderColor;
   double _borderWidth = StickerDefaults.defaultBorderWidth;
+  bool _showVisualEffect = StickerDefaults.defaultShowVisualEffect;
+  SpeckleType _speckleType = SpeckleType.classic;
   bool _isProcessing = false;
 
   @override
@@ -177,6 +179,8 @@ class _StickerPageState extends State<StickerPage> {
         addBorder: _addBorder,
         borderColor: _borderColor,
         borderWidth: _borderWidth,
+        showVisualEffect: _showVisualEffect,
+        speckleType: _speckleType,
       );
 
       setState(() {
@@ -279,10 +283,49 @@ class _StickerPageState extends State<StickerPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Border Settings',
+              'Sticker Settings',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
+            SwitchListTile(
+              title: const Text('Show Visual Effect'),
+              subtitle: const Text(
+                'iOS 17+ native or Flutter overlay on ONNX platforms',
+              ),
+              value: _showVisualEffect,
+              onChanged: (value) {
+                setState(() {
+                  _showVisualEffect = value;
+                });
+              },
+            ),
+            if (_showVisualEffect) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Speckle Style',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children:
+                    SpeckleType.values.map((type) {
+                      final isSelected = _speckleType == type;
+                      return ChoiceChip(
+                        label: Text(_describeSpeckle(type)),
+                        selected: isSelected,
+                        onSelected: (_) {
+                          setState(() {
+                            _speckleType = type;
+                          });
+                        },
+                      );
+                    }).toList(),
+              ),
+              const Divider(),
+            ],
+            const Divider(),
             SwitchListTile(
               title: const Text('Add Border'),
               value: _addBorder,
@@ -447,4 +490,6 @@ class _StickerPageState extends State<StickerPage> {
       ),
     );
   }
+
+  String _describeSpeckle(SpeckleType type) => type.label;
 }

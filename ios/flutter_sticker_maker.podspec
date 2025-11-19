@@ -15,6 +15,8 @@ Flutter plugin to create stickers from images using iOS Vision/CoreImage and And
   s.dependency 'Flutter'
   s.platform = :ios, '16.0' # Updated to support iOS 16.0+ with ONNX for pre-17.0 versions
 
+  s.resources = ['Assets/*.png']
+
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 
     'DEFINES_MODULE' => 'YES', 
