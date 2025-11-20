@@ -1,3 +1,7 @@
+## 0.1.9
+* Enhanced ONNX processing by utilizing pixel image handling and mask generation.
+* Improved the overlay effect animation.
+
 ## 0.1.8
 * Added visual effect feature with `showVisualEffect` parameter. Flutter overlay on ONNX platforms (Android & older iOS). Native SwiftUI overlay on iOS 17+.
 * Shows animated overlay with blur effect and mask highlighting during processing.

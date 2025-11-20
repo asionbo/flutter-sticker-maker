@@ -22,6 +22,8 @@ struct StickerAnimateView: View {
 	private let scaleTransform: CGSize
 	private let spoilerColor: UIColor
 	
+	private static let overlayBackground = Color(red: 0, green: 0, blue: 0, opacity: 0.35)
+
 	init(originalImage: UIImage, parameters: StickerParameters, plugin: FlutterStickerMakerPlugin, onComplete: @escaping (Data) -> Void, onError: @escaping (Error) -> Void) {
 		self.originalImage = originalImage
 		self.parameters = parameters
@@ -37,25 +39,15 @@ struct StickerAnimateView: View {
 
 	var body: some View {
 		ZStack {
-			originalImageView
-			stickerImageView
-		}
-		.onAppear {
-			if !hasStartedProcessing {
-				hasStartedProcessing = true
-				startStickerCreation()
-			}
-		}
-	}
+			Self.overlayBackground
 
-	@ViewBuilder
-	private var originalImageView: some View {
-		Image(uiImage: originalImage)
-			.resizable()
-			.scaledToFit()
-			.opacity(stickerImage == nil ? 1 : 0)
-			.animation(stickerAnimation, value: stickerImage)
-			.overlay {
+			ZStack {
+				Image(uiImage: originalImage)
+					.resizable()
+					.scaledToFit()
+					.opacity(stickerImage == nil ? 1 : 0)
+					.animation(stickerAnimation, value: stickerImage)
+
 				Group {
 					if parameters.speckleType == .flutteroverlay {
 						AnimatedSpeckleOverlay(color: spoilerColor, speckleType: parameters.speckleType)
@@ -64,18 +56,24 @@ struct StickerAnimateView: View {
 					}
 				}
 				.opacity(spoilerViewOpacity)
-			}
-	}
 
-	@ViewBuilder
-	private var stickerImageView: some View {
-		if let stickerImage {
-			Image(uiImage: stickerImage)
-				.resizable()
-				.scaledToFit()
-				.scaleEffect(stickerScale)
-				.rotationEffect(rotationAngle)
-				.scaleEffect(scaleTransform)
+				if let stickerImage {
+					Image(uiImage: stickerImage)
+						.resizable()
+						.scaledToFit()
+						.scaleEffect(stickerScale)
+						.rotationEffect(rotationAngle)
+						.scaleEffect(scaleTransform)
+				}
+			}
+			.aspectRatio(originalImage.size.width / originalImage.size.height, contentMode: .fit)
+		}
+		.allowsHitTesting(false)
+		.onAppear {
+			if !hasStartedProcessing {
+				hasStartedProcessing = true
+				startStickerCreation()
+			}
 		}
 	}
 	
