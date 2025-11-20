@@ -94,9 +94,28 @@ class FlutterStickerMaker {
       _isUsingOnnx = await _shouldUseOnnx();
       if (_isUsingOnnx) {
         // Use ONNX implementation for Android and iOS < 17
+        final pixelImage = await OnnxStickerProcessor.getPixelsFromImage(
+          imageBytes,
+        );
+        if (pixelImage == null) {
+          throw StickerException(
+            'Failed to decode image for processing',
+            errorCode: 'IMAGE_DECODING_FAILED',
+          );
+        }
+
+        final mask = await OnnxStickerProcessor.generateMask(pixelImage);
+        if (mask == null) {
+          throw StickerException(
+            'Failed to generate mask for the image',
+            errorCode: 'MASK_GENERATION_FAILED',
+          );
+        }
+
         final process =
-            () => OnnxStickerProcessor.makeSticker(
-              imageBytes,
+            () => OnnxStickerProcessor.applyStickerEffect(
+              pixelImage,
+              mask,
               addBorder: addBorder,
               borderColor: borderColor,
               borderWidth: borderWidth,

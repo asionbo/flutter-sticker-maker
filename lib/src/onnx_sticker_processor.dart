@@ -7,6 +7,8 @@ import 'package:flutter_sticker_maker/src/native_mask_processor.dart';
 import 'dart:ui' as ui;
 import 'dart:developer' as dev;
 
+import 'package:flutter_sticker_maker/src/pixel_image.dart';
+
 /// Memory pool for reusing byte arrays
 class _MemoryPool {
   static final Map<int, List<Uint8List>> _pools = {};
@@ -195,6 +197,24 @@ class OnnxStickerProcessor {
     }
   }
 
+  static Future<PixelImage?> getPixelsFromImage(Uint8List imageBytes) async {
+    // Decode the input image
+    final codec = await ui.instantiateImageCodec(imageBytes);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+
+    // Convert to bytes for processing
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+
+    if (byteData == null) return null;
+
+    final width = image.width;
+    final height = image.height;
+    final pixels = byteData.buffer.asUint8List();
+
+    return PixelImage(width: width, height: height, pixels: pixels);
+  }
+
   /// Create a sticker using ONNX-based background removal
   static Future<Uint8List?> makeSticker(
     Uint8List imageBytes, {
@@ -212,42 +232,23 @@ class OnnxStickerProcessor {
 
     try {
       // Decode the input image
-      final codec = await ui.instantiateImageCodec(imageBytes);
-      final frame = await codec.getNextFrame();
-      final image = frame.image;
-
-      // Convert to bytes for processing
-      final byteData = await image.toByteData(
-        format: ui.ImageByteFormat.rawRgba,
-      );
-      if (byteData == null) return null;
-
-      final width = image.width;
-      final height = image.height;
-      final pixels = byteData.buffer.asUint8List();
-
-      // Generate unique cache key for this specific image
-      final cacheKey = _ProcessingCache._generateKey(pixels, width, height);
-      List<double>? mask = _ProcessingCache.getMask(cacheKey);
-
-      if (mask != null) {
-        if (kDebugMode) {
-          dev.log(
-            'Using cached mask for key: $cacheKey',
-            name: "FlutterStickerMaker",
-          );
-        }
-      } else {
-        mask = await _runOnnxInference(pixels, width, height);
-        _ProcessingCache.putMask(cacheKey, mask);
+      final pixelImage = await getPixelsFromImage(imageBytes);
+      if (pixelImage == null) {
+        throw Exception('Failed to decode image for processing');
       }
+
+      final mask = await _getMaskFromPixels(
+        pixelImage.pixels,
+        pixelImage.width,
+        pixelImage.height,
+      );
 
       // Apply the mask and create the sticker with async processing
       final stickerBytes = await _applyStickerEffectsAsync(
-        pixels,
+        pixelImage.pixels,
         mask,
-        width,
-        height,
+        pixelImage.width,
+        pixelImage.height,
         addBorder: addBorder,
         borderColor: borderColor,
         borderWidth: borderWidth,
@@ -256,6 +257,85 @@ class OnnxStickerProcessor {
       return stickerBytes;
     } catch (e) {
       throw Exception('ONNX sticker processing failed: $e');
+    }
+  }
+
+  /// Generate mask from image bytes
+  static Future<List<double>?> generateMask(PixelImage pixelImage) async {
+    // Clear float buffer pool at start of each processing to prevent reuse
+    _floatBufferPool.clear();
+
+    // Only initialize if not already done
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    try {
+      return await _getMaskFromPixels(
+        pixelImage.pixels,
+        pixelImage.width,
+        pixelImage.height,
+      );
+    } catch (e) {
+      throw Exception('Failed to generate mask: $e');
+    }
+  }
+
+  /// Apply sticker effect using existing mask
+  static Future<Uint8List?> applyStickerEffect(
+    PixelImage pixelImage,
+    List<double> mask, {
+    bool addBorder = true,
+    String borderColor = '#FFFFFF',
+    double borderWidth = 12.0,
+  }) async {
+    // Clear float buffer pool at start of each processing to prevent reuse
+    _floatBufferPool.clear();
+
+    // Only initialize if not already done
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    try {
+      // Apply the mask and create the sticker with async processing
+      final stickerBytes = await _applyStickerEffectsAsync(
+        pixelImage.pixels,
+        mask,
+        pixelImage.width,
+        pixelImage.height,
+        addBorder: addBorder,
+        borderColor: borderColor,
+        borderWidth: borderWidth,
+      );
+
+      return stickerBytes;
+    } catch (e) {
+      throw Exception('Failed to apply sticker effect: $e');
+    }
+  }
+
+  static Future<List<double>> _getMaskFromPixels(
+    Uint8List pixels,
+    int width,
+    int height,
+  ) async {
+    // Generate unique cache key for this specific image
+    final cacheKey = _ProcessingCache._generateKey(pixels, width, height);
+    List<double>? mask = _ProcessingCache.getMask(cacheKey);
+
+    if (mask != null) {
+      if (kDebugMode) {
+        dev.log(
+          'Using cached mask for key: $cacheKey',
+          name: "FlutterStickerMaker",
+        );
+      }
+      return mask;
+    } else {
+      mask = await _runOnnxInference(pixels, width, height);
+      _ProcessingCache.putMask(cacheKey, mask);
+      return mask;
     }
   }
 

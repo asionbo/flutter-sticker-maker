@@ -239,58 +239,52 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
           color: _overlayBackground,
           alignment: Alignment.center,
           child: FractionallySizedBox(
-            widthFactor: 0.92,
-            heightFactor: 0.92,
+            widthFactor: 1.0,
+            heightFactor: 1.0,
             child: AspectRatio(
               aspectRatio:
                   _aspectRatio.isFinite && _aspectRatio > 0
                       ? _aspectRatio
                       : 1.0,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(color: Colors.black26),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      AnimatedOpacity(
-                        opacity: _showSticker ? 0 : 1,
-                        duration: const Duration(milliseconds: 260),
-                        curve: Curves.easeOut,
-                        child: Image(image: _sourceImage, fit: BoxFit.contain),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  AnimatedOpacity(
+                    opacity: _showSticker ? 0 : 1,
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOut,
+                    child: Image(image: _sourceImage, fit: BoxFit.contain),
+                  ),
+                  if (_stickerBytes != null)
+                    AnimatedBuilder(
+                      animation: _stickerController,
+                      builder:
+                          (context, child) => Transform.scale(
+                            scale: _stickerScale(),
+                            child: child,
+                          ),
+                      child: Image.memory(
+                        _stickerBytes!,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
                       ),
-                      if (_stickerBytes != null)
-                        AnimatedBuilder(
-                          animation: _stickerController,
-                          builder:
-                              (context, child) => Transform.scale(
-                                scale: _stickerScale(),
-                                child: child,
-                              ),
-                          child: Image.memory(
-                            _stickerBytes!,
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
+                    ),
+                  AnimatedBuilder(
+                    animation: Listenable.merge([
+                      _spoilerController,
+                      _speckleController,
+                    ]),
+                    builder:
+                        (context, _) => Opacity(
+                          opacity: _spoilerController.value,
+                          child: _SpoilerOverlay(
+                            animation: _speckleController,
+                            baseColor: _spoilerColor,
+                            speckleType: widget.speckleType,
                           ),
                         ),
-                      AnimatedBuilder(
-                        animation: Listenable.merge([
-                          _spoilerController,
-                          _speckleController,
-                        ]),
-                        builder:
-                            (context, _) => Opacity(
-                              opacity: _spoilerController.value,
-                              child: _SpoilerOverlay(
-                                animation: _speckleController,
-                                baseColor: _spoilerColor,
-                                speckleType: widget.speckleType,
-                              ),
-                            ),
-                      ),
-                    ],
                   ),
-                ),
+                ],
               ),
             ),
           ),
