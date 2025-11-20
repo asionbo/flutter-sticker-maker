@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -112,7 +111,7 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
   final ValueNotifier<double> _overlayOpacity = ValueNotifier<double>(0);
 
   double _aspectRatio = 1.0;
-  Color _spoilerColor = Colors.white.withOpacity(0.4);
+  Color _spoilerColor = Colors.white.withValues(alpha: 0.4);
   Uint8List? _stickerBytes;
   bool _showSticker = false;
   bool _hasCompleted = false;
@@ -324,12 +323,12 @@ class _OverlayMetadata {
 
   static Color _deriveSpoilerColor(ByteData? data) {
     if (data == null) {
-      return Colors.white.withOpacity(0.4);
+      return Colors.white.withValues(alpha: 0.4);
     }
 
     final values = data.buffer.asUint8List();
     if (values.isEmpty) {
-      return Colors.white.withOpacity(0.4);
+      return Colors.white.withValues(alpha: 0.4);
     }
 
     double r = 0, g = 0, b = 0;
@@ -350,7 +349,7 @@ class _OverlayMetadata {
       math.min(0.55, 0.35 + (0.5 - brightness).abs()),
     );
     final baseColor = brightness >= 0.55 ? Colors.black : Colors.white;
-    return baseColor.withOpacity(targetAlpha);
+    return baseColor.withValues(alpha: targetAlpha);
   }
 }
 
@@ -390,8 +389,8 @@ class _SpoilerOverlay extends StatelessWidget {
                   center: primaryAlignment,
                   radius: 1.2,
                   colors: [
-                    baseColor.withOpacity(style.primaryOpacity),
-                    baseColor.withOpacity(style.midOpacity),
+                    baseColor.withValues(alpha: style.primaryOpacity),
+                    baseColor.withValues(alpha: style.midOpacity),
                     Colors.transparent,
                   ],
                   stops: const [0.0, 0.45, 1.0],
@@ -404,7 +403,7 @@ class _SpoilerOverlay extends StatelessWidget {
                   begin: secondaryAlignment,
                   end: -secondaryAlignment,
                   colors: [
-                    baseColor.withOpacity(style.secondaryOpacity),
+                    baseColor.withValues(alpha: style.secondaryOpacity),
                     Colors.transparent,
                   ],
                 ),
