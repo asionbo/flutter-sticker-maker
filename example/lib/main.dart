@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:example/services/permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_sticker_maker/flutter_sticker_maker.dart';
@@ -61,6 +62,7 @@ class _StickerPageState extends State<StickerPage> {
   double _borderWidth = StickerDefaults.defaultBorderWidth;
   bool _showVisualEffect = StickerDefaults.defaultShowVisualEffect;
   SpeckleType _speckleType = SpeckleType.classic;
+  bool _useCustomVisualEffect = false;
   bool _isProcessing = false;
 
   @override
@@ -179,8 +181,12 @@ class _StickerPageState extends State<StickerPage> {
         addBorder: _addBorder,
         borderColor: _borderColor,
         borderWidth: _borderWidth,
-        showVisualEffect: _showVisualEffect,
+        showVisualEffect: _showVisualEffect && !_useCustomVisualEffect,
         speckleType: _speckleType,
+        visualEffectBuilder:
+            _showVisualEffect && _useCustomVisualEffect
+                ? _customVisualEffectBuilder
+                : null,
       );
 
       setState(() {
@@ -296,34 +302,68 @@ class _StickerPageState extends State<StickerPage> {
               onChanged: (value) {
                 setState(() {
                   _showVisualEffect = value;
+                  if (!value) {
+                    _useCustomVisualEffect = false;
+                  }
                 });
               },
             ),
             if (_showVisualEffect) ...[
               const SizedBox(height: 8),
               const Text(
-                'Speckle Style',
+                'Overlay Type',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
-                runSpacing: 8,
-                children:
-                    SpeckleType.values.map((type) {
-                      final isSelected = _speckleType == type;
-                      return ChoiceChip(
-                        label: Text(_describeSpeckle(type)),
-                        selected: isSelected,
-                        onSelected: (_) {
-                          setState(() {
-                            _speckleType = type;
-                          });
-                        },
-                      );
-                    }).toList(),
+                children: [
+                  ChoiceChip(
+                    label: const Text('Default overlay'),
+                    selected: !_useCustomVisualEffect,
+                    onSelected: (_) {
+                      setState(() {
+                        _useCustomVisualEffect = false;
+                      });
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('Custom builder'),
+                    selected: _useCustomVisualEffect,
+                    onSelected: (_) {
+                      setState(() {
+                        _useCustomVisualEffect = true;
+                      });
+                    },
+                  ),
+                ],
               ),
-              const Divider(),
+              const SizedBox(height: 8),
+              if (!_useCustomVisualEffect) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Speckle Style',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children:
+                      SpeckleType.values.map((type) {
+                        final isSelected = _speckleType == type;
+                        return ChoiceChip(
+                          label: Text(_describeSpeckle(type)),
+                          selected: isSelected,
+                          onSelected: (_) {
+                            setState(() {
+                              _speckleType = type;
+                            });
+                          },
+                        );
+                      }).toList(),
+                ),
+              ],
             ],
             const Divider(),
             SwitchListTile(
@@ -492,4 +532,111 @@ class _StickerPageState extends State<StickerPage> {
   }
 
   String _describeSpeckle(SpeckleType type) => type.label;
+
+  VisualEffectBuilder get _customVisualEffectBuilder => (
+    BuildContext context,
+    VisualEffectRequest request,
+  ) {
+    /// Keep the overlay visible until dismissed manually.
+    request.keepOverlayUntilDismissed();
+
+    /// Create a memory image from the original bytes.
+    final memoryImage = Image.memory(
+      request.imageBytes,
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+    );
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 280),
+      builder: (context, value, child) => Opacity(opacity: value, child: child),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ColorFiltered(
+              colorFilter: ColorFilter.mode(
+                Colors.black.withValues(alpha: 0.20),
+                BlendMode.srcOver,
+              ),
+              child: ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: memoryImage,
+              ),
+            ),
+          ),
+
+          Center(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.95, end: 1.0),
+              duration: const Duration(milliseconds: 420),
+              curve: Curves.easeOutBack,
+              builder:
+                  (context, scale, child) =>
+                      Transform.scale(scale: scale, child: child),
+              child: FutureBuilder<Uint8List?>(
+                future: request.processing,
+                builder: (context, snapshot) {
+                  final completed =
+                      snapshot.connectionState == ConnectionState.done;
+
+                  /// Show the processed image if available.
+                  final resultBytes = snapshot.data;
+
+                  /// Auto dismiss the overlay after a short delay.
+                  if (completed) {
+                    Future<void>.delayed(
+                      const Duration(milliseconds: 500),
+                    ).then((_) => request.dismiss());
+                  }
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 350),
+                        child:
+                            completed && resultBytes != null
+                                ? ClipRRect(
+                                  key: const ValueKey('preview'),
+                                  child: Image.memory(
+                                    resultBytes,
+                                    fit: BoxFit.contain,
+                                  ),
+                                )
+                                : Column(
+                                  key: const ValueKey('progress'),
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: const [
+                                    SizedBox(
+                                      width: 48,
+                                      height: 48,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 4,
+                                        valueColor: AlwaysStoppedAnimation(
+                                          Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: TextButton.icon(
+              onPressed: request.dismiss,
+              icon: const Icon(Icons.close, color: Colors.white),
+              label: const Text('Hide overlay'),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  };
 }
