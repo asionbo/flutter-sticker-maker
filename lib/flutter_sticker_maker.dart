@@ -140,7 +140,6 @@ class FlutterStickerMaker {
         if (visualEffectBuilder != null) {
           return await VisualEffectPresenter.run(
             imageBytes: imageBytes,
-            speckleType: speckleType,
             process: process,
             builder: visualEffectBuilder,
           );
@@ -173,7 +172,6 @@ class FlutterStickerMaker {
         if (visualEffectBuilder != null) {
           return await VisualEffectPresenter.run(
             imageBytes: imageBytes,
-            speckleType: speckleType,
             process: process,
             builder: visualEffectBuilder,
           );

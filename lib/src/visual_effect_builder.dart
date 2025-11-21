@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
-import 'constants.dart';
-
 /// Signature for building a custom visual effect overlay.
 typedef VisualEffectBuilder =
     Widget Function(BuildContext context, VisualEffectRequest request);
@@ -13,7 +11,6 @@ typedef VisualEffectBuilder =
 class VisualEffectRequest {
   VisualEffectRequest({
     required this.imageBytes,
-    required this.speckleType,
     required this.processing,
     required this.dismiss,
     required VoidCallback enableManualDismiss,
@@ -21,9 +18,6 @@ class VisualEffectRequest {
 
   /// Original image bytes being processed.
   final Uint8List imageBytes;
-
-  /// Selected speckle style for consistency with default visuals.
-  final SpeckleType speckleType;
 
   /// The in-flight processing future. Builders can listen to completion.
   final Future<Uint8List?> processing;
@@ -45,7 +39,6 @@ class VisualEffectPresenter {
   /// Runs [process] while mounting [builder] inside the root overlay.
   static Future<Uint8List?> run({
     required Uint8List imageBytes,
-    required SpeckleType speckleType,
     required Future<Uint8List?> Function() process,
     required VisualEffectBuilder builder,
     Duration completionDelay = const Duration(milliseconds: 240),
@@ -79,7 +72,6 @@ class VisualEffectPresenter {
             context,
             VisualEffectRequest(
               imageBytes: imageBytes,
-              speckleType: speckleType,
               processing: processingFuture,
               dismiss: removeEntry,
               enableManualDismiss: enableManualDismiss,

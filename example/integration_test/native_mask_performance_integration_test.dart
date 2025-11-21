@@ -1,6 +1,6 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_sticker_maker/src/native_mask_processor.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -52,7 +52,9 @@ void main() {
 
         testWidgets('Mask smoothing performance', (tester) async {
           if (!NativeMaskProcessor.isAvailable) {
-            print('Native processor not available, skipping performance test');
+            debugPrint(
+              'Native processor not available, skipping performance test',
+            );
             return;
           }
 
@@ -70,26 +72,28 @@ void main() {
 
           nativeStopwatch.stop();
           expect(nativeResult, equals(MaskProcessorResult.success));
-          print(
+          debugPrint(
             'Native smooth mask (${width}x$height): ${nativeStopwatch.elapsedMicroseconds}μs',
           );
 
           final estimatedDartMicroseconds =
               (pixelCount * kernelSize * kernelSize * 0.01).round();
-          print(
+          debugPrint(
             'Estimated Dart smooth mask (${width}x$height): $estimatedDartMicrosecondsμs',
           );
 
           if (estimatedDartMicroseconds > 0) {
             final speedup =
                 estimatedDartMicroseconds / nativeStopwatch.elapsedMicroseconds;
-            print('Estimated speedup: ${speedup.toStringAsFixed(2)}x');
+            debugPrint('Estimated speedup: ${speedup.toStringAsFixed(2)}x');
           }
         });
 
         testWidgets('Mask expansion performance', (tester) async {
           if (!NativeMaskProcessor.isAvailable) {
-            print('Native processor not available, skipping performance test');
+            debugPrint(
+              'Native processor not available, skipping performance test',
+            );
             return;
           }
 
@@ -107,26 +111,28 @@ void main() {
 
           nativeStopwatch.stop();
           expect(nativeResult, equals(MaskProcessorResult.success));
-          print(
+          debugPrint(
             'Native expand mask (${width}x$height): ${nativeStopwatch.elapsedMicroseconds}μs',
           );
 
           final estimatedDartMicroseconds =
               (pixelCount * borderWidth * borderWidth * 0.005).round();
-          print(
+          debugPrint(
             'Estimated Dart expand mask (${width}x$height): $estimatedDartMicrosecondsμs',
           );
 
           if (estimatedDartMicroseconds > 0) {
             final speedup =
                 estimatedDartMicroseconds / nativeStopwatch.elapsedMicroseconds;
-            print('Estimated speedup: ${speedup.toStringAsFixed(2)}x');
+            debugPrint('Estimated speedup: ${speedup.toStringAsFixed(2)}x');
           }
         });
 
         testWidgets('Sticker mask application performance', (tester) async {
           if (!NativeMaskProcessor.isAvailable) {
-            print('Native processor not available, skipping performance test');
+            debugPrint(
+              'Native processor not available, skipping performance test',
+            );
             return;
           }
 
@@ -144,19 +150,19 @@ void main() {
 
           nativeStopwatch.stop();
           expect(nativeResult, equals(MaskProcessorResult.success));
-          print(
+          debugPrint(
             'Native apply mask (${width}x$height): ${nativeStopwatch.elapsedMicroseconds}μs',
           );
 
           final estimatedDartMicroseconds = (pixelCount * 0.02).round();
-          print(
+          debugPrint(
             'Estimated Dart apply mask (${width}x$height): $estimatedDartMicrosecondsμs',
           );
 
           if (estimatedDartMicroseconds > 0) {
             final speedup =
                 estimatedDartMicroseconds / nativeStopwatch.elapsedMicroseconds;
-            print('Estimated speedup: ${speedup.toStringAsFixed(2)}x');
+            debugPrint('Estimated speedup: ${speedup.toStringAsFixed(2)}x');
           }
         });
       });
@@ -164,7 +170,7 @@ void main() {
 
     testWidgets('Memory usage sanity check', (tester) async {
       if (!NativeMaskProcessor.isAvailable) {
-        print('Native processor not available, skipping memory test');
+        debugPrint('Native processor not available, skipping memory test');
         return;
       }
 
@@ -209,7 +215,9 @@ void main() {
         expect(result3, equals(MaskProcessorResult.success));
       }
 
-      print('Memory test completed: $iterations iterations without issues');
+      debugPrint(
+        'Memory test completed: $iterations iterations without issues',
+      );
     });
   });
 }

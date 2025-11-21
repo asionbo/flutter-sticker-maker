@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_sticker_maker/src/constants.dart';
 import 'package:flutter_sticker_maker/src/visual_effect_builder.dart';
 
 void main() {
@@ -19,7 +18,6 @@ void main() {
 
     final result = await VisualEffectPresenter.run(
       imageBytes: sampleImage,
-      speckleType: SpeckleType.classic,
       process: () async {
         callCount++;
         return sampleImage;
@@ -41,7 +39,6 @@ void main() {
 
     final future = VisualEffectPresenter.run(
       imageBytes: sampleImage,
-      speckleType: SpeckleType.sparkle,
       process: () async {
         await Future<void>.delayed(const Duration(milliseconds: 10));
         return sampleImage;
@@ -76,7 +73,6 @@ void main() {
 
     final future = VisualEffectPresenter.run(
       imageBytes: sampleImage,
-      speckleType: SpeckleType.flutterOverlay,
       process: () async {
         await Future<void>.delayed(const Duration(milliseconds: 5));
         return sampleImage;
@@ -106,7 +102,6 @@ void main() {
 
     final future = VisualEffectPresenter.run(
       imageBytes: sampleImage,
-      speckleType: SpeckleType.burst,
       process: () async {
         await Future<void>.delayed(const Duration(milliseconds: 5));
         return sampleImage;
@@ -139,7 +134,6 @@ void main() {
 
     final future = VisualEffectPresenter.run(
       imageBytes: sampleImage,
-      speckleType: SpeckleType.sparkle,
       process: () async {
         await Future<void>.delayed(const Duration(milliseconds: 5));
         return sampleImage;
