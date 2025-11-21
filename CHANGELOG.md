@@ -1,3 +1,7 @@
+## 0.2.0
+* Refactored visual effect animation.
+* Added `VisualEffectBuilder` for custom overlay implementations.
+
 ## 0.1.9
 * Enhanced ONNX processing by utilizing pixel image handling and mask generation.
 * Improved the overlay effect animation.

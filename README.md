@@ -76,6 +76,10 @@ final flutterOverlayPreview = await FlutterStickerMaker.makeSticker(
 - `borderWidth`: Width of the border in pixels (default: 12.0)
 - `showVisualEffect`: Whether to show the visual effect overlay during processing (native SwiftUI on iOS 17+, Flutter overlay everywhere else, default: false)
 - `speckleType`: Selects the overlay style (`SpeckleType.classic`, `sparkle`, `burst`, or `flutterOverlay`). Defaults to classic. (the `classic`, `sparkle`, and `burst` styles match the native SwiftUI implementation on iOS 17+)
+- `visualEffectBuilder`: Supply a `VisualEffectBuilder` to fully customize the
+  overlay on every platform. The builder receives the source bytes and a
+  `VisualEffectRequest` so you can await `request.processing`, call
+  `request.dismiss()`, or keep the overlay visible after processing.
 
 ### Visual Effect Feature
 
@@ -84,6 +88,37 @@ When `showVisualEffect` is enabled:
 - **ONNX platforms (Android & older iOS)** now render a Flutter-based overlay with the same speckle styles, adaptive tinting, and sticker pop animation.
 - The overlay automatically dismisses after processing finishes and gracefully falls back if no root overlay is available.
 - Choose between `SpeckleType.classic`, `sparkle`, `burst`, or the new `flutterOverlay` style to force the gradient-only reveal that matches the Flutter implementation on every platform.
+- Provide `visualEffectBuilder` when you need a custom progress or preview UI. It overrides the platform-specific overlays and gains direct control over when the overlay dismisses.
+
+#### Custom Visual Effect Builder
+
+```dart
+final sticker = await FlutterStickerMaker.makeSticker(
+  imageBytes,
+  showVisualEffect: true, // optional when a builder is provided
+  visualEffectBuilder: (context, request) {
+    return ColoredBox(
+      color: Colors.black54,
+      child: Center(
+        child: FutureBuilder<Uint8List?>(
+          future: request.processing,
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              // Keep overlay up for a manual preview, then dismiss.
+              request.keepOverlayUntilDismissed();
+              return GestureDetector(
+                onTap: request.dismiss,
+                child: Image.memory(snapshot.data!, fit: BoxFit.contain),
+              );
+            }
+            return const CircularProgressIndicator.adaptive();
+          },
+        ),
+      ),
+    );
+  },
+);
+```
 
 On platforms where overlays cannot be drawn (e.g., headless tests), the request still completes without animation.
 
