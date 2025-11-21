@@ -108,6 +108,7 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
   late final AnimationController _speckleController;
   late final AnimationController _spoilerController;
   late final AnimationController _stickerController;
+  late final AnimationController _shakeController;
   final ValueNotifier<double> _overlayOpacity = ValueNotifier<double>(0);
 
   double _aspectRatio = 1.0;
@@ -133,6 +134,10 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
       vsync: this,
       duration: const Duration(milliseconds: 620),
     );
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
 
     scheduleMicrotask(() {
       if (!mounted) return;
@@ -149,6 +154,7 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
     _speckleController.dispose();
     _spoilerController.dispose();
     _stickerController.dispose();
+    _shakeController.dispose();
     _overlayOpacity.dispose();
     super.dispose();
   }
@@ -200,6 +206,14 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
       _stickerController.forward(),
     ]);
 
+    // Start a short damped shake once the sticker reached its small scale.
+    // The shake controller drives a damped sine for translation.
+    try {
+      await _shakeController.forward();
+    } catch (_) {
+      // If the controller was disposed or cancelled, ignore.
+    }
+
     await Future.delayed(const Duration(milliseconds: 240));
     await _dismissOverlay();
   }
@@ -215,15 +229,33 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
   }
 
   double _stickerScale() {
-    final progress = _stickerController.value;
-    if (progress <= 0.55) {
-      final t = progress / 0.55;
-      final eased = Curves.easeOut.transform(t);
-      return ui.lerpDouble(1.0, 1.12, eased)!;
-    }
-    final t = (progress - 0.55) / 0.45;
-    final eased = Curves.easeIn.transform(t.clamp(0.0, 1.0));
-    return ui.lerpDouble(1.12, 1.0, eased)!;
+    final progress = _stickerController.value.clamp(0.0, 1.0);
+
+    // Smooth exponential easing that maps progress 0..1 -> 0..1, then
+    // lerps from 1.0 down to `minScale`. This produces a smooth decay with
+    // configurable steepness via `k`.
+    const double minScale = 0.6;
+    const double k = 5.0; // larger = faster initial drop
+
+    final double denom = 1 - math.exp(-k);
+    final double eased =
+        denom == 0 ? progress : (1 - math.exp(-k * progress)) / denom;
+
+    return ui.lerpDouble(1.0, minScale, eased)!;
+  }
+
+  Offset _shakeOffset() {
+    final v = _shakeController.value.clamp(0.0, 1.0);
+    if (v <= 0.0) return Offset.zero;
+
+    // Damped sine shake: several cycles, amplitude decays with progress.
+    const double cycles = 6.0;
+    const double baseAmplitude = 8.0; // pixels
+    final double damp = Curves.easeOut.transform(1.0 - v);
+    final double x = math.sin(v * 2 * math.pi * cycles) * baseAmplitude * damp;
+    final double y =
+        math.sin(v * 2 * math.pi * cycles * 0.5) * (baseAmplitude / 3) * damp;
+    return Offset(x, y);
   }
 
   @override
@@ -256,12 +288,18 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
                   ),
                   if (_stickerBytes != null)
                     AnimatedBuilder(
-                      animation: _stickerController,
-                      builder:
-                          (context, child) => Transform.scale(
-                            scale: _stickerScale(),
-                            child: child,
-                          ),
+                      animation: Listenable.merge([
+                        _stickerController,
+                        _shakeController,
+                      ]),
+                      builder: (context, child) {
+                        final scale = _stickerScale();
+                        final offset = _shakeOffset();
+                        return Transform.translate(
+                          offset: offset,
+                          child: Transform.scale(scale: scale, child: child),
+                        );
+                      },
                       child: Image.memory(
                         _stickerBytes!,
                         fit: BoxFit.contain,
