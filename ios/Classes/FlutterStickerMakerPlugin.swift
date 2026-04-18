@@ -151,7 +151,11 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
           result: result
         )
       } catch {
-        self.finishWithProcessingError(error, result: result)
+        self.fallbackToNonVisualEffect(
+          with: parameters,
+          result: result,
+          reason: "Visual-effect preprocessing failed: \(error.localizedDescription)"
+        )
       }
     }
   }
@@ -304,40 +308,88 @@ public class FlutterStickerMakerPlugin: NSObject, FlutterPlugin {
           ?? windowScene.windows.first,
         let rootViewController = presentingWindow.rootViewController
       else {
-        result(
-          FlutterError(
-            code: "INTERNAL_ERROR", message: "Failed to find window", details: nil))
+        self.fallbackToNonVisualEffect(
+          with: parameters,
+          result: result,
+          reason: "Visual-effect presentation failed: no active root view controller"
+        )
         return
       }
 
-      let hostingController = UIHostingController(
+      let presenter = self.topPresentedViewController(from: rootViewController)
+      var didFinish = false
+      var hostingController: UIHostingController<StickerAnimateView>?
+
+      func completeOnce(_ completion: @escaping () -> Void) {
+        guard !didFinish else { return }
+        didFinish = true
+        completion()
+      }
+
+      let controller = UIHostingController(
         rootView: StickerAnimateView(
           originalImage: originalImage,
           parameters: parameters,
           plugin: self,
-          onComplete: { [weak rootViewController] stickerData in
-            rootViewController?.presentedViewController?.dismiss(animated: false) {
-              result(FlutterStandardTypedData(bytes: stickerData))
+          onComplete: { stickerData in
+            completeOnce {
+              self.dismissIfPresented(hostingController) {
+                result(FlutterStandardTypedData(bytes: stickerData))
+              }
             }
           },
-          onError: { [weak rootViewController] error in
-            rootViewController?.presentedViewController?.dismiss(animated: false) {
-              result(
-                FlutterError(
-                  code: "PROCESSING_ERROR", message: error.localizedDescription, details: nil))
+          onError: { error in
+            completeOnce {
+              self.dismissIfPresented(hostingController) {
+                self.fallbackToNonVisualEffect(
+                  with: parameters,
+                  result: result,
+                  reason: "Visual-effect animation failed: \(error.localizedDescription)"
+                )
+              }
             }
           }
         ))
-      hostingController.view.backgroundColor = UIColor.clear
-      hostingController.modalPresentationStyle = .overFullScreen
+      hostingController = controller
 
-      rootViewController.present(hostingController, animated: false)
+      controller.view.backgroundColor = UIColor.clear
+      controller.modalPresentationStyle = .overFullScreen
+
+      presenter.present(controller, animated: false)
     }
 #else
-    result(
-      FlutterError(
-        code: "UNSUPPORTED", message: "SwiftUI not available", details: nil))
+    fallbackToNonVisualEffect(
+      with: parameters,
+      result: result,
+      reason: "Visual-effect presentation unavailable: SwiftUI not available"
+    )
 #endif
+  }
+
+  private func fallbackToNonVisualEffect(
+    with parameters: StickerParameters,
+    result: @escaping FlutterResult,
+    reason: String
+  ) {
+    os_log("%@", log: logger, type: .error, reason)
+    processStickerWithoutVisualEffect(with: parameters, result: result)
+  }
+
+  private func dismissIfPresented(_ controller: UIViewController?, completion: @escaping () -> Void) {
+    guard let controller, controller.presentingViewController != nil else {
+      completion()
+      return
+    }
+
+    controller.dismiss(animated: false, completion: completion)
+  }
+
+  private func topPresentedViewController(from root: UIViewController) -> UIViewController {
+    var candidate = root
+    while let presented = candidate.presentedViewController {
+      candidate = presented
+    }
+    return candidate
   }
 }
 

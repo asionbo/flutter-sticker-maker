@@ -155,19 +155,23 @@ class FlutterStickerMaker {
         final bool shouldRequestNativeEffect =
             showVisualEffect && visualEffectBuilder == null;
 
+        Future<Uint8List?> invokeNative({required bool requestVisualEffect}) {
+          return _channel
+              .invokeMethod<Uint8List>('makeSticker', {
+                'image': imageBytes,
+                'addBorder': addBorder,
+                'borderColor': borderColor,
+                'borderWidth': borderWidth,
+                'showVisualEffect': requestVisualEffect,
+                'speckleType': speckleType.name,
+              })
+              .timeout(
+                Duration(seconds: StickerDefaults.processingTimeoutSeconds),
+              );
+        }
+
         final process =
-            () => _channel
-                .invokeMethod<Uint8List>('makeSticker', {
-                  'image': imageBytes,
-                  'addBorder': addBorder,
-                  'borderColor': borderColor,
-                  'borderWidth': borderWidth,
-                  'showVisualEffect': shouldRequestNativeEffect,
-                  'speckleType': speckleType.name,
-                })
-                .timeout(
-                  Duration(seconds: StickerDefaults.processingTimeoutSeconds),
-                );
+            () => invokeNative(requestVisualEffect: shouldRequestNativeEffect);
 
         if (visualEffectBuilder != null) {
           return await VisualEffectPresenter.run(
@@ -177,7 +181,22 @@ class FlutterStickerMaker {
           );
         }
 
-        return await process();
+        if (!shouldRequestNativeEffect) {
+          return await process();
+        }
+
+        try {
+          return await process();
+        } on PlatformException catch (e) {
+          if (kDebugMode) {
+            dev.log(
+              'Native visual effect failed, retrying without visual effect: '
+              '${e.message ?? e.code}',
+              name: 'FlutterStickerMaker',
+            );
+          }
+          return await invokeNative(requestVisualEffect: false);
+        }
       }
     } on TimeoutException {
       throw StickerException(
