@@ -1,3 +1,8 @@
+## 0.2.2
+
+- Added corner flight overlay style for stickers
+- Enhanced native mask processing with improved performance and reliability
+
 ## 0.2.1
 
 - Enhanced native sticker processing with fallback for visual effect failures.

@@ -85,6 +85,8 @@ typedef ExpandMaskNativeDart =
 
 /// Native library loader
 class NativeMaskProcessor {
+  static const int _maxNativeAllocationBytes = 256 * 1024 * 1024;
+
   static ffi.DynamicLibrary? _lib;
   static ApplyStickerMaskNativeDart? _applyStickerMaskOptimized;
   static SmoothMaskNativeDart? _smoothMaskOptimized;
@@ -142,6 +144,29 @@ class NativeMaskProcessor {
   /// Check if native processing is available
   static bool get isAvailable => _available;
 
+  static int? _checkedElementCount(int width, int height, [int channels = 1]) {
+    if (width <= 0 || height <= 0 || channels <= 0) {
+      return null;
+    }
+
+    final pixelCount = width * height;
+    final elementCount = pixelCount * channels;
+    if (pixelCount <= 0 || elementCount <= 0) {
+      return null;
+    }
+
+    return elementCount;
+  }
+
+  static bool _canAllocate(int elementCount, int elementSize) {
+    if (elementCount <= 0 || elementSize <= 0) {
+      return false;
+    }
+
+    final maxElements = _maxNativeAllocationBytes ~/ elementSize;
+    return elementCount <= maxElements;
+  }
+
   /// Apply sticker mask effects using native code
   static int applyStickerMask(
     Uint8List pixels,
@@ -158,16 +183,26 @@ class NativeMaskProcessor {
     }
 
     // Validate input parameters
-    if (pixels.isEmpty || mask.isEmpty || width <= 0 || height <= 0) {
+    if (pixels.isEmpty ||
+        mask.isEmpty ||
+        width <= 0 ||
+        height <= 0 ||
+        borderWidth < 0 ||
+        borderColorRgb.length < 3) {
       return MaskProcessorResult.errorInvalidParams;
     }
 
     // Validate array sizes
-    final expectedPixelCount = width * height * 4; // RGBA
-    final expectedMaskCount = width * height;
+    final expectedPixelCount = _checkedElementCount(width, height, 4);
+    final expectedMaskCount = _checkedElementCount(width, height);
 
-    if (pixels.length != expectedPixelCount ||
-        mask.length != expectedMaskCount) {
+    if (expectedPixelCount == null ||
+        expectedMaskCount == null ||
+        !_canAllocate(expectedPixelCount, ffi.sizeOf<ffi.Uint8>()) ||
+        !_canAllocate(expectedMaskCount, ffi.sizeOf<ffi.Double>()) ||
+        pixels.length != expectedPixelCount ||
+        mask.length != expectedMaskCount ||
+        (expandedMask != null && expandedMask.length != expectedMaskCount)) {
       return MaskProcessorResult.errorInvalidParams;
     }
 
@@ -187,6 +222,9 @@ class NativeMaskProcessor {
       );
 
       if (expandedMask != null && expandedMask.isNotEmpty) {
+        if (!_canAllocate(expandedMask.length, ffi.sizeOf<ffi.Double>())) {
+          return MaskProcessorResult.errorMemory;
+        }
         expandedMaskPtr = malloc.allocate<ffi.Double>(
           expandedMask.length * ffi.sizeOf<ffi.Double>(),
         );
@@ -198,18 +236,13 @@ class NativeMaskProcessor {
       }
 
       // Copy data to native memory safely
-      for (int i = 0; i < pixels.length; i++) {
-        pixelsPtr[i] = pixels[i];
-      }
-
-      for (int i = 0; i < mask.length; i++) {
-        maskPtr[i] = mask[i];
-      }
+      pixelsPtr.asTypedList(pixels.length).setAll(0, pixels);
+      maskPtr.asTypedList(mask.length).setAll(0, mask);
 
       if (expandedMask != null && expandedMaskPtr != ffi.nullptr) {
-        for (int i = 0; i < expandedMask.length; i++) {
-          expandedMaskPtr[i] = expandedMask[i];
-        }
+        expandedMaskPtr
+            .asTypedList(expandedMask.length)
+            .setAll(0, expandedMask);
       }
 
       // Create border color
@@ -236,9 +269,7 @@ class NativeMaskProcessor {
 
       // Copy result back safely
       if (result == MaskProcessorResult.success) {
-        for (int i = 0; i < pixels.length; i++) {
-          pixels[i] = pixelsPtr[i];
-        }
+        pixels.setAll(0, pixelsPtr.asTypedList(pixels.length));
       }
 
       return result;
@@ -277,13 +308,20 @@ class NativeMaskProcessor {
     }
 
     // Validate input parameters
-    if (mask.isEmpty || output.isEmpty || width <= 0 || height <= 0) {
+    if (mask.isEmpty ||
+        output.isEmpty ||
+        width <= 0 ||
+        height <= 0 ||
+        kernelSize <= 0) {
       return MaskProcessorResult.errorInvalidParams;
     }
 
     // Validate array sizes
-    final expectedSize = width * height;
-    if (mask.length != expectedSize || output.length != expectedSize) {
+    final expectedSize = _checkedElementCount(width, height);
+    if (expectedSize == null ||
+        !_canAllocate(expectedSize, ffi.sizeOf<ffi.Double>()) ||
+        mask.length != expectedSize ||
+        output.length != expectedSize) {
       return MaskProcessorResult.errorInvalidParams;
     }
 
@@ -305,9 +343,7 @@ class NativeMaskProcessor {
       }
 
       // Copy data to native memory safely
-      for (int i = 0; i < mask.length; i++) {
-        maskPtr[i] = mask[i];
-      }
+      maskPtr.asTypedList(mask.length).setAll(0, mask);
 
       // Call native function
       final result = _smoothMaskOptimized!(
@@ -320,9 +356,7 @@ class NativeMaskProcessor {
 
       // Copy result back safely
       if (result == MaskProcessorResult.success) {
-        for (int i = 0; i < output.length; i++) {
-          output[i] = outputPtr[i];
-        }
+        output.setAll(0, outputPtr.asTypedList(output.length));
       }
 
       return result;
@@ -355,13 +389,20 @@ class NativeMaskProcessor {
     }
 
     // Validate input parameters
-    if (mask.isEmpty || output.isEmpty || width <= 0 || height <= 0) {
+    if (mask.isEmpty ||
+        output.isEmpty ||
+        width <= 0 ||
+        height <= 0 ||
+        borderWidth < 0) {
       return MaskProcessorResult.errorInvalidParams;
     }
 
     // Validate array sizes
-    final expectedSize = width * height;
-    if (mask.length != expectedSize || output.length != expectedSize) {
+    final expectedSize = _checkedElementCount(width, height);
+    if (expectedSize == null ||
+        !_canAllocate(expectedSize, ffi.sizeOf<ffi.Double>()) ||
+        mask.length != expectedSize ||
+        output.length != expectedSize) {
       return MaskProcessorResult.errorInvalidParams;
     }
 
@@ -383,9 +424,7 @@ class NativeMaskProcessor {
       }
 
       // Copy data to native memory safely
-      for (int i = 0; i < mask.length; i++) {
-        maskPtr[i] = mask[i];
-      }
+      maskPtr.asTypedList(mask.length).setAll(0, mask);
 
       // Call native function
       final result = _expandMaskNative!(
@@ -398,9 +437,7 @@ class NativeMaskProcessor {
 
       // Copy result back safely
       if (result == MaskProcessorResult.success) {
-        for (int i = 0; i < output.length; i++) {
-          output[i] = outputPtr[i];
-        }
+        output.setAll(0, outputPtr.asTypedList(output.length));
       }
 
       return result;

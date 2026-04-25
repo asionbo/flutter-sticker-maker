@@ -46,34 +46,25 @@ class _ProcessingCache {
   static const int _maxCacheSize = 10;
 
   static String _generateKey(Uint8List data, int width, int height) {
-    // Create a more robust hash that's truly unique per image
+    const int fnvOffset = 0x811C9DC5;
+    const int fnvPrime = 0x01000193;
+    const int mask32 = 0xFFFFFFFF;
 
-    // Use a more comprehensive sampling strategy
-    final step = math.max(1, data.length ~/ 2048); // Sample more pixels
+    int hash = fnvOffset;
+    hash = ((hash ^ width) * fnvPrime) & mask32;
+    hash = ((hash ^ height) * fnvPrime) & mask32;
+    hash = ((hash ^ data.length) * fnvPrime) & mask32;
 
-    // Create multiple hash components
-    int hash1 = 0, hash2 = 0, hash3 = 0;
-
+    final step = math.max(1, data.length ~/ 4096);
     for (int i = 0; i < data.length; i += step) {
-      final pixel = data[i];
-      hash1 = (hash1 * 31 + pixel) & 0x7FFFFFFF;
+      hash = ((hash ^ data[i]) * fnvPrime) & mask32;
     }
 
-    // Sample from different regions for better uniqueness
-    for (int i = step ~/ 2; i < data.length; i += step * 2) {
-      final pixel = data[i];
-      hash2 = (hash2 * 37 + pixel) & 0x7FFFFFFF;
+    if (data.isNotEmpty) {
+      hash = ((hash ^ data[data.length - 1]) * fnvPrime) & mask32;
     }
 
-    // Include data length and additional variance
-    hash3 = data.length.hashCode;
-
-    // Combine all hash components
-
-    // Add timestamp component to ensure uniqueness across sessions
-    final timestamp = DateTime.now().microsecondsSinceEpoch;
-
-    return '${width}x${height}_${hash1}_${hash2}_${hash3}_$timestamp';
+    return '${width}x${height}_${hash.toRadixString(16)}';
   }
 
   static List<double>? getMask(String key) => _maskCache[key];
@@ -345,7 +336,8 @@ class OnnxStickerProcessor {
     int width,
     int height,
   ) async {
-    if (_session == null) {
+    final session = _session;
+    if (session == null) {
       throw Exception('ONNX session not initialized');
     }
 
@@ -359,7 +351,7 @@ class OnnxStickerProcessor {
 
       // Run inference with correct input name
       final inputs = {'input.1': inputTensor};
-      final mapOutputs = await _session!.run(inputs);
+      final mapOutputs = await session.run(inputs);
 
       final outputs = mapOutputs.values.toList();
 

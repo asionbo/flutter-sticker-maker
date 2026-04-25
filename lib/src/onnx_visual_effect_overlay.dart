@@ -11,10 +11,26 @@ import 'constants.dart';
 class OnnxVisualEffectOverlay {
   const OnnxVisualEffectOverlay._();
 
+  @visibleForTesting
+  static Offset debugCornerFlightOffset({
+    required StickerFlightCorner flightCorner,
+    required Size size,
+    required double progress,
+  }) {
+    final easedProgress = Curves.easeInOutCubic.transform(
+      progress.clamp(0.0, 1.0),
+    );
+    return Offset(
+      flightCorner.alignment.x * size.width * 0.34 * easedProgress,
+      flightCorner.alignment.y * size.height * 0.34 * easedProgress,
+    );
+  }
+
   /// Runs [process] while showing the visual effect overlay when possible.
   static Future<Uint8List?> run({
     required Uint8List imageBytes,
     required SpeckleType speckleType,
+    StickerFlightCorner flightCorner = StickerDefaults.defaultFlightCorner,
     required Future<Uint8List?> Function() process,
   }) async {
     final overlayState = _findOverlayState();
@@ -31,6 +47,7 @@ class OnnxVisualEffectOverlay {
           (_) => _OnnxVisualEffectOverlay(
             imageBytes: imageBytes,
             speckleType: speckleType,
+            flightCorner: flightCorner,
             process: process,
             disableAnimations: debugDisableAnimations,
             onComplete: (result) {
@@ -82,6 +99,7 @@ class _OnnxVisualEffectOverlay extends StatefulWidget {
   const _OnnxVisualEffectOverlay({
     required this.imageBytes,
     required this.speckleType,
+    required this.flightCorner,
     required this.process,
     required this.onComplete,
     required this.onError,
@@ -90,6 +108,7 @@ class _OnnxVisualEffectOverlay extends StatefulWidget {
 
   final Uint8List imageBytes;
   final SpeckleType speckleType;
+  final StickerFlightCorner flightCorner;
   final Future<Uint8List?> Function() process;
   final void Function(Uint8List? result) onComplete;
   final void Function(Object error, StackTrace stackTrace) onError;
@@ -228,13 +247,15 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
     await Future.delayed(const Duration(milliseconds: 220));
   }
 
+  bool get _usesCornerFlight => widget.speckleType == SpeckleType.cornerFlight;
+
   double _stickerScale() {
     final progress = _stickerController.value.clamp(0.0, 1.0);
 
     // Smooth exponential easing that maps progress 0..1 -> 0..1, then
     // lerps from 1.0 down to `minScale`. This produces a smooth decay with
     // configurable steepness via `k`.
-    const double minScale = 0.6;
+    final double minScale = _usesCornerFlight ? 0.36 : 0.6;
     const double k = 5.0; // larger = faster initial drop
 
     final double denom = 1 - math.exp(-k);
@@ -244,7 +265,23 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
     return ui.lerpDouble(1.0, minScale, eased)!;
   }
 
+  Offset _cornerFlightOffset(BoxConstraints constraints) {
+    if (!_usesCornerFlight) {
+      return Offset.zero;
+    }
+
+    return OnnxVisualEffectOverlay.debugCornerFlightOffset(
+      flightCorner: widget.flightCorner,
+      size: constraints.biggest,
+      progress: _stickerController.value,
+    );
+  }
+
   Offset _shakeOffset() {
+    if (_usesCornerFlight) {
+      return Offset.zero;
+    }
+
     final v = _shakeController.value.clamp(0.0, 1.0);
     if (v <= 0.0) return Offset.zero;
 
@@ -266,65 +303,75 @@ class _OnnxVisualEffectOverlayState extends State<_OnnxVisualEffectOverlay>
         builder:
             (context, child) =>
                 Opacity(opacity: _overlayOpacity.value, child: child),
-        child: Container(
-          color: _overlayBackground,
-          alignment: Alignment.center,
-          child: FractionallySizedBox(
-            widthFactor: 1.0,
-            heightFactor: 1.0,
-            child: AspectRatio(
-              aspectRatio:
-                  _aspectRatio.isFinite && _aspectRatio > 0
-                      ? _aspectRatio
-                      : 1.0,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  AnimatedOpacity(
-                    opacity: _showSticker ? 0 : 1,
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOut,
-                    child: Image(image: _sourceImage, fit: BoxFit.contain),
-                  ),
-                  if (_stickerBytes != null)
-                    AnimatedBuilder(
-                      animation: Listenable.merge([
-                        _stickerController,
-                        _shakeController,
-                      ]),
-                      builder: (context, child) {
-                        final scale = _stickerScale();
-                        final offset = _shakeOffset();
-                        return Transform.translate(
-                          offset: offset,
-                          child: Transform.scale(scale: scale, child: child),
-                        );
-                      },
-                      child: Image.memory(
-                        _stickerBytes!,
-                        fit: BoxFit.contain,
-                        gaplessPlayback: true,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Container(
+              color: _overlayBackground,
+              alignment: Alignment.center,
+              child: FractionallySizedBox(
+                widthFactor: 1.0,
+                heightFactor: 1.0,
+                child: AspectRatio(
+                  aspectRatio:
+                      _aspectRatio.isFinite && _aspectRatio > 0
+                          ? _aspectRatio
+                          : 1.0,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      AnimatedOpacity(
+                        opacity: _showSticker ? 0 : 1,
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.easeOut,
+                        child: Image(image: _sourceImage, fit: BoxFit.contain),
                       ),
-                    ),
-                  AnimatedBuilder(
-                    animation: Listenable.merge([
-                      _spoilerController,
-                      _speckleController,
-                    ]),
-                    builder:
-                        (context, _) => Opacity(
-                          opacity: _spoilerController.value,
-                          child: _SpoilerOverlay(
-                            animation: _speckleController,
-                            baseColor: _spoilerColor,
-                            speckleType: widget.speckleType,
+                      if (_stickerBytes != null)
+                        AnimatedBuilder(
+                          animation: Listenable.merge([
+                            _stickerController,
+                            _shakeController,
+                          ]),
+                          builder: (context, child) {
+                            final scale = _stickerScale();
+                            final offset =
+                                _cornerFlightOffset(constraints) +
+                                _shakeOffset();
+                            return Transform.translate(
+                              offset: offset,
+                              child: Transform.scale(
+                                scale: scale,
+                                alignment: Alignment.center,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Image.memory(
+                            _stickerBytes!,
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
                           ),
                         ),
+                      AnimatedBuilder(
+                        animation: Listenable.merge([
+                          _spoilerController,
+                          _speckleController,
+                        ]),
+                        builder:
+                            (context, _) => Opacity(
+                              opacity: _spoilerController.value,
+                              child: _SpoilerOverlay(
+                                animation: _speckleController,
+                                baseColor: _spoilerColor,
+                                speckleType: widget.speckleType,
+                              ),
+                            ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
@@ -493,6 +540,14 @@ class _SpeckleStyle {
           midOpacity: 0.3,
           secondaryOpacity: 0.45,
           blurSigma: 12,
+        );
+      case SpeckleType.cornerFlight:
+        return const _SpeckleStyle(
+          drift: 1.0,
+          primaryOpacity: 0.9,
+          midOpacity: 0.34,
+          secondaryOpacity: 0.48,
+          blurSigma: 13,
         );
       case SpeckleType.classic:
         return const _SpeckleStyle(

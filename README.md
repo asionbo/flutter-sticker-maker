@@ -30,15 +30,19 @@ The native FFI optimization automatically falls back to pure Dart implementation
 ## Usage
 
 alternatively, you can initialize the plugin with the following code:
+
 ```dart
 FlutterStickerMaker.initialize();
 ```
+
 and dispose it when done:
+
 ```dart
 FlutterStickerMaker.dispose();
 ```
 
 make a sticker from an image:
+
 ```dart
 import 'package:flutter_sticker_maker/flutter_sticker_maker.dart';
 
@@ -57,7 +61,7 @@ final stickerWithBorder = await FlutterStickerMaker.makeSticker(
 final stickerWithEffect = await FlutterStickerMaker.makeSticker(
   imageBytes,
   showVisualEffect: true, // Shows animated preview overlay
-  speckleType: SpeckleType.classic, // Choose overlay style (classic, sparkle, burst, flutterOverlay)
+  speckleType: SpeckleType.classic, // Choose overlay style (classic, sparkle, burst, cornerFlight, flutterOverlay)
 );
 
 // With Flutter overlay style on ONNX platforms (Android & older iOS)
@@ -65,6 +69,14 @@ final flutterOverlayPreview = await FlutterStickerMaker.makeSticker(
   imageBytes,
   showVisualEffect: true,
   speckleType: SpeckleType.flutterOverlay, // Flutter overlay style (ONNX platforms)
+);
+
+// With corner-flight overlay motion
+final stickerToCorner = await FlutterStickerMaker.makeSticker(
+  imageBytes,
+  showVisualEffect: true,
+  speckleType: SpeckleType.cornerFlight,
+  flightCorner: StickerFlightCorner.bottomCenter,
 );
 ```
 
@@ -75,7 +87,8 @@ final flutterOverlayPreview = await FlutterStickerMaker.makeSticker(
 - `borderColor`: Hex color string for the border (default: '#FFFFFF')
 - `borderWidth`: Width of the border in pixels (default: 12.0)
 - `showVisualEffect`: Whether to show the visual effect overlay during processing (native SwiftUI on iOS 17+, Flutter overlay everywhere else, default: false)
-- `speckleType`: Selects the overlay style (`SpeckleType.classic`, `sparkle`, `burst`, or `flutterOverlay`). Defaults to classic. (the `classic`, `sparkle`, and `burst` styles match the native SwiftUI implementation on iOS 17+)
+- `speckleType`: Selects the overlay style (`SpeckleType.classic`, `sparkle`, `burst`, `cornerFlight`, or `flutterOverlay`). Defaults to classic. The `cornerFlight` style always uses the Flutter overlay so the processed sticker can animate toward a selected corner on every platform.
+- `flightCorner`: Selects the destination position for `SpeckleType.cornerFlight`. Defaults to `StickerFlightCorner.topRight`. Available positions include the four corners plus `topCenter`, `centerLeft`, `centerRight`, and `bottomCenter`.
 - `visualEffectBuilder`: Supply a `VisualEffectBuilder` to fully customize the
   overlay on every platform. The builder receives the source bytes and a
   `VisualEffectRequest` so you can await `request.processing`, call
@@ -84,10 +97,11 @@ final flutterOverlayPreview = await FlutterStickerMaker.makeSticker(
 ### Visual Effect Feature
 
 When `showVisualEffect` is enabled:
+
 - **iOS 17+ (Vision mode)** uses the native SwiftUI overlay with speckle emitters and mask reveal animation.
 - **ONNX platforms (Android & older iOS)** now render a Flutter-based overlay with the same speckle styles, adaptive tinting, and sticker pop animation.
 - The overlay automatically dismisses after processing finishes and gracefully falls back if no root overlay is available.
-- Choose between `SpeckleType.classic`, `sparkle`, `burst`, or the new `flutterOverlay` style to force the gradient-only reveal that matches the Flutter implementation on every platform.
+- Choose between `SpeckleType.classic`, `sparkle`, `burst`, `cornerFlight`, or `flutterOverlay`. The `cornerFlight` style animates the finished sticker toward a selected edge or corner with a scale-down motion and always uses the Flutter overlay implementation.
 - Provide `visualEffectBuilder` when you need a custom progress or preview UI. It overrides the platform-specific overlays and gains direct control over when the overlay dismisses.
 
 #### Custom Visual Effect Builder
@@ -128,7 +142,6 @@ On platforms where overlays cannot be drawn (e.g., headless tests), the request 
 
 ![example](example/assets/images/IMG_0121.PNG)
 
-
 See `example/` for a full demo app.
 
 ## Setup
@@ -139,6 +152,7 @@ See `example/` for a full demo app.
 ### Permissions
 
 Add to AndroidManifest.xml:
+
 ```xml
 <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
@@ -147,6 +161,7 @@ Add to AndroidManifest.xml:
 ```
 
 Add to ios/Runner/Info.plist:
+
 ```xml
 <key>NSPhotoLibraryUsageDescription</key>
 <string>This app needs access to your photo library to pick images and save stickers.</string>

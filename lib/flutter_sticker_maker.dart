@@ -62,6 +62,9 @@ class FlutterStickerMaker {
   /// - [showVisualEffect]: Whether to request the default visual effect when
   ///   [visualEffectBuilder] is null. When a builder is provided it will always
   ///   be used regardless of this flag.
+  /// - [flightCorner]: Destination position used by the Flutter overlay when
+  ///   [speckleType] is [SpeckleType.cornerFlight]. On iOS 17+ this style still
+  ///   uses the Flutter overlay instead of the native visual effect path.
   /// - [visualEffectBuilder]: Optional Flutter overlay builder that runs on
   ///   every platform. When set it replaces the native/ONNX visualizations.
   ///
@@ -94,6 +97,7 @@ class FlutterStickerMaker {
     double borderWidth = StickerDefaults.defaultBorderWidth,
     bool showVisualEffect = StickerDefaults.defaultShowVisualEffect,
     SpeckleType speckleType = StickerDefaults.defaultSpeckleType,
+    StickerFlightCorner flightCorner = StickerDefaults.defaultFlightCorner,
     VisualEffectBuilder? visualEffectBuilder,
   }) async {
     // Validate input parameters
@@ -104,6 +108,8 @@ class FlutterStickerMaker {
     try {
       // Determine which implementation to use based on platform and version
       _isUsingOnnx = await _shouldUseOnnx();
+      final bool usesFlutterOverlayEffect =
+          speckleType == SpeckleType.cornerFlight;
       if (_isUsingOnnx) {
         // Use ONNX implementation for Android and iOS < 17
         final pixelImage = await OnnxStickerProcessor.getPixelsFromImage(
@@ -148,12 +154,15 @@ class FlutterStickerMaker {
         return await OnnxVisualEffectOverlay.run(
           imageBytes: imageBytes,
           speckleType: speckleType,
+          flightCorner: flightCorner,
           process: process,
         );
       } else {
         // Use platform-specific implementation (iOS 17+ only)
         final bool shouldRequestNativeEffect =
-            showVisualEffect && visualEffectBuilder == null;
+            showVisualEffect &&
+            visualEffectBuilder == null &&
+            !usesFlutterOverlayEffect;
 
         Future<Uint8List?> invokeNative({required bool requestVisualEffect}) {
           return _channel
@@ -178,6 +187,15 @@ class FlutterStickerMaker {
             imageBytes: imageBytes,
             process: process,
             builder: visualEffectBuilder,
+          );
+        }
+
+        if (usesFlutterOverlayEffect && showVisualEffect) {
+          return await OnnxVisualEffectOverlay.run(
+            imageBytes: imageBytes,
+            speckleType: speckleType,
+            flightCorner: flightCorner,
+            process: () => invokeNative(requestVisualEffect: false),
           );
         }
 

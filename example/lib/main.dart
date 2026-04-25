@@ -62,6 +62,7 @@ class _StickerPageState extends State<StickerPage> {
   double _borderWidth = StickerDefaults.defaultBorderWidth;
   bool _showVisualEffect = StickerDefaults.defaultShowVisualEffect;
   SpeckleType _speckleType = SpeckleType.classic;
+  StickerFlightCorner _flightCorner = StickerDefaults.defaultFlightCorner;
   bool _useCustomVisualEffect = false;
   bool _isProcessing = false;
 
@@ -183,6 +184,7 @@ class _StickerPageState extends State<StickerPage> {
         borderWidth: _borderWidth,
         showVisualEffect: _showVisualEffect && !_useCustomVisualEffect,
         speckleType: _speckleType,
+        flightCorner: _flightCorner,
         visualEffectBuilder:
             _showVisualEffect && _useCustomVisualEffect
                 ? _customVisualEffectBuilder
@@ -363,6 +365,30 @@ class _StickerPageState extends State<StickerPage> {
                         );
                       }).toList(),
                 ),
+                if (_speckleType == SpeckleType.cornerFlight) ...[
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Flight Position',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children:
+                        StickerFlightCorner.values.map((corner) {
+                          return ChoiceChip(
+                            label: Text(corner.label),
+                            selected: _flightCorner == corner,
+                            onSelected: (_) {
+                              setState(() {
+                                _flightCorner = corner;
+                              });
+                            },
+                          );
+                        }).toList(),
+                  ),
+                ],
               ],
             ],
             const Divider(),

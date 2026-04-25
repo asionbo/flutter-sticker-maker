@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_sticker_maker/src/constants.dart';
@@ -59,6 +58,49 @@ void main() {
 
     expect(result, same(sampleImage));
     expect(callCount, equals(1));
+  });
+
+  testWidgets('runs corner flight inside a widget tree overlay', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: Scaffold()));
+
+    final future = OnnxVisualEffectOverlay.run(
+      imageBytes: sampleImage,
+      speckleType: SpeckleType.cornerFlight,
+      flightCorner: StickerFlightCorner.bottomLeft,
+      process: () async {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        return sampleImage;
+      },
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    final result = await future;
+    expect(result, same(sampleImage));
+  });
+
+  test('corner flight offset follows the requested corner', () {
+    final offset = OnnxVisualEffectOverlay.debugCornerFlightOffset(
+      flightCorner: StickerFlightCorner.bottomLeft,
+      size: const Size(300, 200),
+      progress: 0.75,
+    );
+
+    expect(offset.dx, lessThan(0));
+    expect(offset.dy, greaterThan(0));
+  });
+
+  test('corner flight offset supports edge positions', () {
+    final offset = OnnxVisualEffectOverlay.debugCornerFlightOffset(
+      flightCorner: StickerFlightCorner.topCenter,
+      size: const Size(300, 200),
+      progress: 0.75,
+    );
+
+    expect(offset.dx, closeTo(0, 0.001));
+    expect(offset.dy, lessThan(0));
   });
 }
 

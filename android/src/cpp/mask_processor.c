@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 // Threshold constants matching Dart implementation
 #define THRESHOLD 0.5
@@ -31,6 +32,34 @@ static inline double clamp_double(double value, double min, double max) {
     return value;
 }
 
+static inline bool checked_total_pixels(int width, int height, size_t* total_pixels) {
+    if (!total_pixels || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    const size_t safe_width = (size_t)width;
+    const size_t safe_height = (size_t)height;
+    if (safe_width > SIZE_MAX / safe_height) {
+        return false;
+    }
+
+    *total_pixels = safe_width * safe_height;
+    return true;
+}
+
+static inline bool checked_total_bytes(size_t element_count, size_t element_size, size_t* total_bytes) {
+    if (!total_bytes) {
+        return false;
+    }
+
+    if (element_count > SIZE_MAX / element_size) {
+        return false;
+    }
+
+    *total_bytes = element_count * element_size;
+    return true;
+}
+
 MaskProcessorResult apply_sticker_mask_native(
     uint8_t* pixels,
     const double* mask,
@@ -41,14 +70,13 @@ MaskProcessorResult apply_sticker_mask_native(
     int border_width,
     const double* expanded_mask
 ) {
-    if (!pixels || !mask || width <= 0 || height <= 0) {
+    size_t total_pixels = 0;
+    if (!pixels || !mask || border_width < 0 || !checked_total_pixels(width, height, &total_pixels)) {
         return MASK_PROCESSOR_ERROR_INVALID_PARAMS;
     }
-
-    const int total_pixels = width * height;
     
-    for (int i = 0; i < total_pixels; i++) {
-        const int pixel_index = i * 4;
+    for (size_t i = 0; i < total_pixels; i++) {
+        const size_t pixel_index = i * 4;
         const double mask_value = mask[i];
         const double expanded_mask_value = expanded_mask ? expanded_mask[i] : mask_value;
 
@@ -86,54 +114,66 @@ MaskProcessorResult smooth_mask_native(
     int height,
     int kernel_size
 ) {
-    if (!mask || !output || width <= 0 || height <= 0 || kernel_size <= 0) {
+    size_t total_pixels = 0;
+    size_t total_bytes = 0;
+    if (!mask || !output || kernel_size <= 0 || !checked_total_pixels(width, height, &total_pixels) ||
+        !checked_total_bytes(total_pixels, sizeof(double), &total_bytes)) {
         return MASK_PROCESSOR_ERROR_INVALID_PARAMS;
     }
 
     if (kernel_size <= 1) {
-        memcpy(output, mask, sizeof(double) * width * height);
+        memcpy(output, mask, total_bytes);
         return MASK_PROCESSOR_SUCCESS;
     }
 
     // Allocate temporary buffer for separable blur
-    double* temp = (double*)malloc(sizeof(double) * width * height);
+    double* temp = (double*)malloc(total_bytes);
     if (!temp) {
         return MASK_PROCESSOR_ERROR_MEMORY;
     }
 
     const int half_kernel = kernel_size / 2;
 
-    // Horizontal pass
+    // Horizontal pass with a sliding window to reduce repeated summations.
     for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            double sum = 0.0;
-            int count = 0;
+        const size_t row_start = (size_t)y * (size_t)width;
+        double sum = 0.0;
+        int count = 0;
 
-            for (int kx = -half_kernel; kx <= half_kernel; kx++) {
-                const int nx = x + kx;
-                if (nx >= 0 && nx < width) {
-                    sum += mask[y * width + nx];
-                    count++;
-                }
+        for (int x = 0; x <= half_kernel && x < width; x++) {
+            sum += mask[row_start + (size_t)x];
+            count++;
+        }
+
+        for (int x = 0; x < width; x++) {
+            temp[row_start + (size_t)x] = sum / (double)count;
+
+            const int remove_x = x - half_kernel;
+            const int add_x = x + half_kernel + 1;
+            if (remove_x >= 0) {
+                sum -= mask[row_start + (size_t)remove_x];
+                count--;
             }
-            temp[y * width + x] = sum / count;
+            if (add_x < width) {
+                sum += mask[row_start + (size_t)add_x];
+                count++;
+            }
         }
     }
 
-    // Vertical pass
+    // Vertical pass with the same sliding-window approach.
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             double sum = 0.0;
             int count = 0;
+            const int start_y = y - half_kernel < 0 ? 0 : y - half_kernel;
+            const int end_y = y + half_kernel >= height ? height - 1 : y + half_kernel;
 
-            for (int ky = -half_kernel; ky <= half_kernel; ky++) {
-                const int ny = y + ky;
-                if (ny >= 0 && ny < height) {
-                    sum += temp[ny * width + x];
-                    count++;
-                }
+            for (int ny = start_y; ny <= end_y; ny++) {
+                sum += temp[(size_t)ny * (size_t)width + (size_t)x];
+                count++;
             }
-            output[y * width + x] = sum / count;
+            output[(size_t)y * (size_t)width + (size_t)x] = sum / (double)count;
         }
     }
 
@@ -148,29 +188,35 @@ MaskProcessorResult expand_mask_native(
     int height,
     int border_width
 ) {
-    if (!mask || !output || width <= 0 || height <= 0 || border_width < 0) {
+    size_t total_pixels = 0;
+    size_t total_bytes = 0;
+    if (!mask || !output || border_width < 0 || !checked_total_pixels(width, height, &total_pixels) ||
+        !checked_total_bytes(total_pixels, sizeof(double), &total_bytes)) {
         return MASK_PROCESSOR_ERROR_INVALID_PARAMS;
     }
 
     // If border_width is 0, just copy the mask
     if (border_width == 0) {
-        memcpy(output, mask, sizeof(double) * width * height);
+        memcpy(output, mask, total_bytes);
         return MASK_PROCESSOR_SUCCESS;
     }
 
     // Initialize output to zero
-    memset(output, 0, sizeof(double) * width * height);
+    memset(output, 0, total_bytes);
 
     // For small border widths, use optimized direct approach
     if (border_width <= 3) {
         // Pre-compute circular kernel offsets for small borders
-        int kernel_offsets[64]; // Maximum for border_width=3: (2*3+1)^2 = 49
+        int kernel_dx[64];
+        int kernel_dy[64];
         int kernel_count = 0;
         
         for (int dy = -border_width; dy <= border_width; dy++) {
             for (int dx = -border_width; dx <= border_width; dx++) {
                 if (dx * dx + dy * dy <= border_width * border_width) {
-                    kernel_offsets[kernel_count++] = dy * width + dx;
+                    kernel_dx[kernel_count] = dx;
+                    kernel_dy[kernel_count] = dy;
+                    kernel_count++;
                 }
             }
         }
@@ -179,17 +225,13 @@ MaskProcessorResult expand_mask_native(
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 if (mask[y * width + x] > THRESHOLD) {
-                    const int center_idx = y * width + x;
-                    
                     for (int k = 0; k < kernel_count; k++) {
-                        const int target_idx = center_idx + kernel_offsets[k];
-                        const int target_y = target_idx / width;
-                        const int target_x = target_idx % width;
-                        
-                        // Bounds check
-                        if (target_y >= 0 && target_y < height && 
+                        const int target_x = x + kernel_dx[k];
+                        const int target_y = y + kernel_dy[k];
+
+                        if (target_y >= 0 && target_y < height &&
                             target_x >= 0 && target_x < width) {
-                            output[target_idx] = 1.0;
+                            output[(size_t)target_y * (size_t)width + (size_t)target_x] = 1.0;
                         }
                     }
                 }
@@ -198,87 +240,51 @@ MaskProcessorResult expand_mask_native(
     } else {
         // For larger border widths, use distance transform approach
         // First pass: mark all foreground pixels
-        for (int i = 0; i < width * height; i++) {
+        for (size_t i = 0; i < total_pixels; i++) {
             if (mask[i] > THRESHOLD) {
                 output[i] = 1.0;
             }
         }
 
         // Multi-pass dilation for better cache performance
-        double* temp_buffer = (double*)malloc(sizeof(double) * width * height);
+        double* temp_buffer = (double*)malloc(total_bytes);
         if (!temp_buffer) {
             return MASK_PROCESSOR_ERROR_MEMORY;
         }
 
         // Use iterative dilation approach - more cache friendly
         for (int iter = 0; iter < border_width; iter++) {
-            memcpy(temp_buffer, output, sizeof(double) * width * height);
+            memcpy(temp_buffer, output, total_bytes);
             
-            for (int y = 1; y < height - 1; y++) {
-                for (int x = 1; x < width - 1; x++) {
-                    const int idx = y * width + x;
-                    if (temp_buffer[idx] == 0.0) {
-                        // Check 8-connected neighbors
-                        if (temp_buffer[idx - width - 1] > 0.0 ||  // Top-left
-                            temp_buffer[idx - width] > 0.0 ||      // Top
-                            temp_buffer[idx - width + 1] > 0.0 ||  // Top-right
-                            temp_buffer[idx - 1] > 0.0 ||          // Left
-                            temp_buffer[idx + 1] > 0.0 ||          // Right
-                            temp_buffer[idx + width - 1] > 0.0 ||  // Bottom-left
-                            temp_buffer[idx + width] > 0.0 ||      // Bottom
-                            temp_buffer[idx + width + 1] > 0.0) {  // Bottom-right
-                            output[idx] = 1.0;
+            for (int y = 0; y < height; y++) {
+                const int start_y = y > 0 ? y - 1 : 0;
+                const int end_y = y + 1 < height ? y + 1 : height - 1;
+
+                for (int x = 0; x < width; x++) {
+                    const size_t idx = (size_t)y * (size_t)width + (size_t)x;
+                    if (temp_buffer[idx] != 0.0) {
+                        continue;
+                    }
+
+                    const int start_x = x > 0 ? x - 1 : 0;
+                    const int end_x = x + 1 < width ? x + 1 : width - 1;
+                    bool has_foreground_neighbor = false;
+
+                    for (int ny = start_y; ny <= end_y && !has_foreground_neighbor; ny++) {
+                        for (int nx = start_x; nx <= end_x; nx++) {
+                            if (nx == x && ny == y) {
+                                continue;
+                            }
+
+                            if (temp_buffer[(size_t)ny * (size_t)width + (size_t)nx] > 0.0) {
+                                has_foreground_neighbor = true;
+                                break;
+                            }
                         }
                     }
-                }
-            }
-            
-            // Handle border pixels separately to avoid bounds checking in main loop
-            for (int x = 0; x < width; x++) {
-                // Top row (y = 0)
-                if (temp_buffer[x] == 0.0) {
-                    if ((x > 0 && temp_buffer[x - 1] > 0.0) ||
-                        (x < width - 1 && temp_buffer[x + 1] > 0.0) ||
-                        temp_buffer[width + x] > 0.0 ||
-                        (x > 0 && temp_buffer[width + x - 1] > 0.0) ||
-                        (x < width - 1 && temp_buffer[width + x + 1] > 0.0)) {
-                        output[x] = 1.0;
-                    }
-                }
-                // Bottom row
-                const int bottom_idx = (height - 1) * width + x;
-                if (temp_buffer[bottom_idx] == 0.0) {
-                    if ((x > 0 && temp_buffer[bottom_idx - 1] > 0.0) ||
-                        (x < width - 1 && temp_buffer[bottom_idx + 1] > 0.0) ||
-                        temp_buffer[bottom_idx - width] > 0.0 ||
-                        (x > 0 && temp_buffer[bottom_idx - width - 1] > 0.0) ||
-                        (x < width - 1 && temp_buffer[bottom_idx - width + 1] > 0.0)) {
-                        output[bottom_idx] = 1.0;
-                    }
-                }
-            }
-            
-            for (int y = 1; y < height - 1; y++) {
-                // Left column
-                const int left_idx = y * width;
-                if (temp_buffer[left_idx] == 0.0) {
-                    if (temp_buffer[left_idx - width] > 0.0 ||
-                        temp_buffer[left_idx - width + 1] > 0.0 ||
-                        temp_buffer[left_idx + 1] > 0.0 ||
-                        temp_buffer[left_idx + width] > 0.0 ||
-                        temp_buffer[left_idx + width + 1] > 0.0) {
-                        output[left_idx] = 1.0;
-                    }
-                }
-                // Right column
-                const int right_idx = y * width + width - 1;
-                if (temp_buffer[right_idx] == 0.0) {
-                    if (temp_buffer[right_idx - width - 1] > 0.0 ||
-                        temp_buffer[right_idx - width] > 0.0 ||
-                        temp_buffer[right_idx - 1] > 0.0 ||
-                        temp_buffer[right_idx + width - 1] > 0.0 ||
-                        temp_buffer[right_idx + width] > 0.0) {
-                        output[right_idx] = 1.0;
+
+                    if (has_foreground_neighbor) {
+                        output[idx] = 1.0;
                     }
                 }
             }
