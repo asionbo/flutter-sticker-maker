@@ -65,6 +65,7 @@ class _StickerPageState extends State<StickerPage> {
   StickerFlightCorner _flightCorner = StickerDefaults.defaultFlightCorner;
   bool _useCustomVisualEffect = false;
   bool _isProcessing = false;
+  bool _showOriginalPreview = true;
 
   @override
   void initState() {
@@ -80,62 +81,100 @@ class _StickerPageState extends State<StickerPage> {
     super.dispose();
   }
 
-  Future<void> _pickImageFromGallery() async {
+  Future<Uint8List?> _pickImageBytes({
+    required ImageSource source,
+    required bool includeCamera,
+    required String failureLabel,
+  }) async {
     try {
-      final granted = await PermissionService.requestImagePermissions();
+      final granted = await PermissionService.requestImagePermissions(
+        includeCamera: includeCamera,
+      );
       if (!granted) {
-        await _handlePermissionDenied();
-        return;
+        await _handlePermissionDenied(includeCamera: includeCamera);
+        return null;
       }
 
       final picker = ImagePicker();
       final XFile? imageFile = await picker.pickImage(
-        source: ImageSource.gallery,
+        source: source,
         maxWidth: 2048,
         maxHeight: 2048,
         imageQuality: 85,
       );
 
-      if (imageFile != null) {
-        final bytes = await imageFile.readAsBytes();
-        setState(() {
-          _inputImage = bytes;
-          _stickerImage = null;
-        });
-      }
+      return imageFile?.readAsBytes();
     } catch (e) {
-      _showErrorSnackBar('Failed to pick image: $e');
+      _showErrorSnackBar('Failed to $failureLabel: $e');
+      return null;
+    }
+  }
+
+  void _setSelectedImage(Uint8List imageBytes) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _inputImage = imageBytes;
+      _stickerImage = null;
+      _showOriginalPreview = true;
+    });
+  }
+
+  void _setQuickWorkflowImage(Uint8List imageBytes) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _inputImage = imageBytes;
+      _stickerImage = null;
+      _showOriginalPreview = false;
+    });
+  }
+
+  Future<void> _pickImageFromGallery() async {
+    final bytes = await _pickImageBytes(
+      source: ImageSource.gallery,
+      includeCamera: false,
+      failureLabel: 'pick image',
+    );
+
+    if (bytes != null) {
+      _setSelectedImage(bytes);
     }
   }
 
   Future<void> _captureImageWithCamera() async {
-    try {
-      final granted = await PermissionService.requestImagePermissions(
-        includeCamera: true,
-      );
-      if (!granted) {
-        await _handlePermissionDenied(includeCamera: true);
-        return;
-      }
+    final bytes = await _pickImageBytes(
+      source: ImageSource.camera,
+      includeCamera: true,
+      failureLabel: 'capture image',
+    );
 
-      final picker = ImagePicker();
-      final XFile? imageFile = await picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 2048,
-        maxHeight: 2048,
-        imageQuality: 85,
-      );
-
-      if (imageFile != null) {
-        final bytes = await imageFile.readAsBytes();
-        setState(() {
-          _inputImage = bytes;
-          _stickerImage = null;
-        });
-      }
-    } catch (e) {
-      _showErrorSnackBar('Failed to capture image: $e');
+    if (bytes != null) {
+      _setSelectedImage(bytes);
     }
+  }
+
+  Future<void> _captureAndCreateSticker() async {
+    if (_isProcessing) {
+      return;
+    }
+
+    final bytes = await _pickImageBytes(
+      source: ImageSource.camera,
+      includeCamera: true,
+      failureLabel: 'capture image',
+    );
+
+    if (bytes == null) {
+      return;
+    }
+
+    _setQuickWorkflowImage(bytes);
+    await _createSticker();
   }
 
   Future<void> _handlePermissionDenied({bool includeCamera = false}) async {
@@ -171,6 +210,10 @@ class _StickerPageState extends State<StickerPage> {
       return;
     }
 
+    if (_isProcessing) {
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
       _stickerImage = null;
@@ -191,6 +234,10 @@ class _StickerPageState extends State<StickerPage> {
                 : null,
       );
 
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         _stickerImage = stickerBytes;
         _isProcessing = false;
@@ -200,11 +247,19 @@ class _StickerPageState extends State<StickerPage> {
         _showErrorSnackBar('Failed to create sticker. No result returned.');
       }
     } on StickerException catch (e) {
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         _isProcessing = false;
       });
       _showErrorSnackBar('Sticker creation failed: ${e.message}');
     } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         _isProcessing = false;
       });
@@ -237,7 +292,8 @@ class _StickerPageState extends State<StickerPage> {
               const SizedBox(height: 16),
               _buildCreateStickerButton(),
             ],
-            if (_inputImage != null || _stickerImage != null) ...[
+            if ((_showOriginalPreview && _inputImage != null) ||
+                _stickerImage != null) ...[
               const SizedBox(height: 24),
               _buildImageDisplay(),
             ],
@@ -276,6 +332,15 @@ class _StickerPageState extends State<StickerPage> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isProcessing ? null : _captureAndCreateSticker,
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('Camera + Sticker'),
+              ),
             ),
           ],
         ),
@@ -479,9 +544,11 @@ class _StickerPageState extends State<StickerPage> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_inputImage != null)
+        if (_showOriginalPreview && _inputImage != null)
           Expanded(child: _buildImageCard('Original Image', _inputImage!)),
-        if (_inputImage != null && _stickerImage != null)
+        if (_showOriginalPreview &&
+            _inputImage != null &&
+            _stickerImage != null)
           const SizedBox(width: 16),
         if (_stickerImage != null)
           Expanded(child: _buildImageCard('Sticker Result', _stickerImage!)),
@@ -492,7 +559,7 @@ class _StickerPageState extends State<StickerPage> {
   Widget _buildVerticalImageLayout() {
     return Column(
       children: [
-        if (_inputImage != null) ...[
+        if (_showOriginalPreview && _inputImage != null) ...[
           _buildImageCard('Original Image', _inputImage!),
           const SizedBox(height: 16),
         ],
