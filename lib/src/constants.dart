@@ -42,7 +42,7 @@ class StickerDefaults {
   static const bool defaultAddBorder = true;
 
   /// Default setting for showing visual effect overlays
-  static const bool defaultShowVisualEffect = false;
+  static const bool defaultShowVisualEffect = true;
 
   /// Default speckle style for the visual effect
   static const SpeckleType defaultSpeckleType = SpeckleType.classic;
