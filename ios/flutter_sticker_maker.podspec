@@ -10,12 +10,12 @@ Flutter plugin to create stickers from images using iOS Vision/CoreImage and And
   s.license          = { :file => '../LICENSE' } # Ensure you have a LICENSE file at the root of your plugin
   s.author           = { 'Asionbo' => 'asionbo@126.com' } # Replace with your details
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
-  s.public_header_files = 'Classes/mask_processor.h', 'Classes/simd_optimizations.h'
+  s.source_files = 'flutter_sticker_maker/Sources/flutter_sticker_maker/**/*.swift', 'flutter_sticker_maker/Sources/flutter_sticker_maker_c/**/*.{c,m,h}'
+  s.public_header_files = 'flutter_sticker_maker/Sources/flutter_sticker_maker_c/include/flutter_sticker_maker_c/*.h'
   s.dependency 'Flutter'
   s.platform = :ios, '16.0' # Updated to support iOS 16.0+ with ONNX for pre-17.0 versions
 
-  s.resources = ['Assets/*.png']
+  s.resources = ['flutter_sticker_maker/Sources/*.png']
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 

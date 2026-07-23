@@ -6,7 +6,7 @@ repository: https://github.com/asionbo/flutter-sticker-maker
 
 environment:
   sdk: "^3.7.0"
-  flutter: ">=3.24.0"
+  flutter: ">=3.44.0"
 
 flutter:
   assets:
