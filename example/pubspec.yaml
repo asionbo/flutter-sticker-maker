@@ -19,8 +19,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_sticker_maker:
     path: ../
-  permission_handler: ^11.4.0
-  image_picker: ^1.2.0
+  permission_handler: ^12.0.3
+  image_picker: ^1.2.3
 
 dev_dependencies:
   flutter_test:

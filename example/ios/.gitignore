@@ -32,3 +32,6 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+Runner.xcworkspace/xcshareddata/

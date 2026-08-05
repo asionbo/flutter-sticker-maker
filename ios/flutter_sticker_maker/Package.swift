@@ -12,10 +12,16 @@ let package = Package(
             targets: ["flutter_sticker_maker", "flutter_sticker_maker_c"]
         )
     ],
+    dependencies: [
+        .package(name: "FlutterFramework", path: "../FlutterFramework")
+    ],
     targets: [
         .target(
             name: "flutter_sticker_maker",
-            dependencies: ["flutter_sticker_maker_c"],
+            dependencies: [
+                "flutter_sticker_maker_c",
+                .product(name: "FlutterFramework", package: "FlutterFramework")
+                ],
             resources: [
                 .process("textSpeckle_Normal.png")
             ]
