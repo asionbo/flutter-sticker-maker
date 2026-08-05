@@ -1,3 +1,7 @@
+## 0.2.3-beta.1
+
+- Support SwiftPM
+
 ## 0.2.2
 
 - Added corner flight overlay style for stickers
