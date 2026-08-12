@@ -1,3 +1,5 @@
+
+
 # Flutter Sticker Maker
 
 A cross-platform Flutter plugin to create stickers by removing backgrounds from images using iOS Vision/CoreImage and ONNX.
@@ -26,6 +28,21 @@ A cross-platform Flutter plugin to create stickers by removing backgrounds from 
 - **Expected Speedup**: 2-5x faster sticker creation with 30-50% less memory usage
 
 The native FFI optimization automatically falls back to pure Dart implementation if the native library is unavailable, ensuring compatibility across all platforms.
+
+## Installation
+
+Add the following dependency to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  flutter_sticker_maker: ^0.2.2
+```
+
+Then run:
+
+```bash
+flutter pub get
+```
 
 ## Usage
 
